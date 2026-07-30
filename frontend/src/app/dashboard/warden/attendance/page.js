@@ -1,86 +1,149 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
-  HiOutlineCalendarDays,
-  HiOutlineCheckCircle,
-  HiOutlineXCircle,
-  HiOutlineQrCode,
-  HiOutlineClipboardDocumentCheck,
-  HiOutlineUsers,
+  HiOutlineCalendarDays, HiOutlineCheckCircle, HiOutlineXCircle,
+  HiOutlineQrCode, HiOutlineClipboardDocumentCheck, HiOutlineUsers,
+  HiOutlineMagnifyingGlass, HiOutlineClock,
 } from 'react-icons/hi2';
 import api from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
+import { useSocket } from '@/store/socketProvider';
 import toast from 'react-hot-toast';
+
+const STATUS_OPTIONS = [
+  { value: 'PRESENT', label: 'Present', color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
+  { value: 'ABSENT', label: 'Absent', color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
+  { value: 'ON_LEAVE', label: 'On Leave', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+  { value: 'LATE', label: 'Late', color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
+];
+
+function StatusPill({ status }) {
+  const opt = STATUS_OPTIONS.find(o => o.value === status) || STATUS_OPTIONS[1];
+  return (
+    <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: opt.bg, color: opt.color }}>
+      {opt.label}
+    </span>
+  );
+}
 
 export default function WardenAttendancePage() {
   const { user } = useAuthStore();
-  const [hostels, setHostels]   = useState([]);
+  const { socket } = useSocket();
+  const [students, setStudents] = useState([]);
+  const [hostels, setHostels] = useState([]);
   const [selectedHostel, setSelectedHostel] = useState('');
-  const [records, setRecords]   = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [qrData, setQrData]     = useState(null);
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [tab, setTab] = useState('mark');
+  const [attendance, setAttendance] = useState({});
+  const [qrData, setQrData] = useState(null);
   const [generating, setGenerating] = useState(false);
-  const [manualForm, setManualForm] = useState({ studentId: '', status: 'PRESENT' });
-  const [marking, setMarking] = useState(false);
-  const [tab, setTab] = useState('records');
+  const [todaySummary, setTodaySummary] = useState({ total: 0, present: 0, absent: 0, onLeave: 0, late: 0 });
 
-  useEffect(() => {
-    api.get('/hostels').then(res => {
-      const h = res.data?.hostels || res.data || [];
-      setHostels(h);
-      if (h.length > 0) setSelectedHostel(h[0]._id);
-    }).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (!selectedHostel) return;
+  // Load students assigned to warden
+  const loadStudents = useCallback(async () => {
     setLoading(true);
-    api.get(`/attendance/hostel/${selectedHostel}`)
-      .then(res => setRecords(res.data?.attendance || res.data || []))
-      .catch(() => setRecords([]))
-      .finally(() => setLoading(false));
-  }, [selectedHostel]);
+    try {
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      const res = await api.get(`/attendance/warden/students?${params}`);
+      if (res.success) {
+        setStudents(res.data.students || []);
+        setHostels(res.data.hostels || []);
+        if (!selectedHostel && res.data.hostels?.length > 0) {
+          setSelectedHostel(res.data.hostels[0]._id);
+        }
+        // Init attendance map from today's status
+        const map = {};
+        (res.data.students || []).forEach(s => {
+          map[s._id] = s.todayStatus || '';
+        });
+        setAttendance(map);
+        // Compute summary
+        const vals = Object.values(map);
+        setTodaySummary({
+          total: res.data.students?.length || 0,
+          present: vals.filter(v => v === 'PRESENT').length,
+          absent: vals.filter(v => v === 'ABSENT').length,
+          onLeave: vals.filter(v => v === 'ON_LEAVE').length,
+          late: vals.filter(v => v === 'LATE').length,
+        });
+      }
+    } catch { toast.error('Failed to load students'); }
+    setLoading(false);
+  }, [search]);
+
+  useEffect(() => { loadStudents(); }, []);
+
+  // Socket: real-time student additions
+  useEffect(() => {
+    if (!socket) return;
+    const onStudentAdded = () => { loadStudents(); toast('New student added!', { icon: '👤' }); };
+    const onStudentMarked = (data) => {
+      setAttendance(prev => ({ ...prev, [data.studentId]: data.status }));
+      toast(`${data.method} check-in received`, { icon: '📱' });
+    };
+    socket.on('student:added', onStudentAdded);
+    socket.on('attendance:student-marked', onStudentMarked);
+    return () => {
+      socket.off('student:added', onStudentAdded);
+      socket.off('attendance:student-marked', onStudentMarked);
+    };
+  }, [socket, loadStudents]);
+
+  const setStatus = (studentId, status) => {
+    setAttendance(prev => ({ ...prev, [studentId]: status }));
+  };
+
+  const markAll = (status) => {
+    const map = {};
+    filteredStudents.forEach(s => { map[s._id] = status; });
+    setAttendance(prev => ({ ...prev, ...map }));
+  };
+
+  const submitBulk = async () => {
+    const records = Object.entries(attendance)
+      .filter(([, status]) => status)
+      .map(([studentId, status]) => ({ studentId, status }));
+    if (records.length === 0) return toast.error('Mark at least one student');
+    setSubmitting(true);
+    try {
+      const res = await api.post('/attendance/bulk', { hostelId: selectedHostel, records });
+      if (res.success) {
+        toast.success(`Attendance saved for ${res.data.count} students`);
+        loadStudents();
+      } else toast.error(res.message || 'Failed');
+    } catch { toast.error('Server error'); }
+    setSubmitting(false);
+  };
 
   const generateQR = async () => {
     setGenerating(true);
     try {
       const res = await api.post('/attendance/qr/generate', { hostelId: selectedHostel });
-      if (res.success) {
-        setQrData(res.data);
-        toast.success('QR code generated for 10 min');
-      } else toast.error(res.message || 'Failed');
+      if (res.success) { setQrData(res.data); toast.success('QR generated (5 min)'); }
+      else toast.error(res.message);
     } catch { toast.error('Server error'); }
     setGenerating(false);
   };
 
-  const markManual = async (e) => {
-    e.preventDefault();
-    if (!manualForm.studentId.trim()) return toast.error('Enter student ID');
-    setMarking(true);
-    try {
-      const res = await api.post('/attendance/manual', {
-        studentId: manualForm.studentId,
-        hostelId: selectedHostel,
-        status: manualForm.status,
-      });
-      if (res.success) {
-        toast.success(`Marked ${manualForm.status}`);
-        setManualForm({ studentId: '', status: 'PRESENT' });
-        // refresh
-        const r2 = await api.get(`/attendance/hostel/${selectedHostel}`);
-        setRecords(r2.data?.attendance || r2.data || []);
-      } else toast.error(res.message || 'Failed');
-    } catch { toast.error('Server error'); }
-    setMarking(false);
-  };
+  const handleSearch = (e) => { e.preventDefault(); loadStudents(); };
+
+  const filteredStudents = selectedHostel
+    ? students.filter(s => s.studentProfile?.hostelId?._id === selectedHostel || s.studentProfile?.hostelId === selectedHostel)
+    : students;
 
   const today = new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  const presentToday = records.filter(r => {
-    const d = new Date(r.date || r.createdAt);
-    const t = new Date();
-    return d.toDateString() === t.toDateString() && r.status === 'PRESENT';
-  }).length;
+  const markedCount = Object.values(attendance).filter(v => v).length;
+
+  const stats = [
+    { icon: HiOutlineUsers, label: 'Total Students', value: filteredStudents.length, color: 'var(--color-accent)' },
+    { icon: HiOutlineCheckCircle, label: 'Present', value: todaySummary.present, color: '#10b981' },
+    { icon: HiOutlineXCircle, label: 'Absent', value: todaySummary.absent, color: '#ef4444' },
+    { icon: HiOutlineClock, label: 'On Leave / Late', value: todaySummary.onLeave + todaySummary.late, color: '#f59e0b' },
+  ];
 
   return (
     <div>
@@ -92,12 +155,8 @@ export default function WardenAttendancePage() {
       </div>
 
       {/* Stats */}
-      <div className="responsive-grid-3" style={{ marginBottom: 24 }}>
-        {[
-          { icon: HiOutlineCalendarDays, label: 'Total Records', value: records.length, color: 'var(--color-primary)' },
-          { icon: HiOutlineCheckCircle, label: 'Present Today', value: presentToday, color: 'var(--color-success)' },
-          { icon: HiOutlineUsers, label: 'Hostels', value: hostels.length, color: 'var(--color-accent)' },
-        ].map((s, i) => (
+      <div className="responsive-grid-4" style={{ marginBottom: 24 }}>
+        {stats.map((s, i) => (
           <motion.div key={i} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}
             className="glass card-hover" style={{ padding: 20, borderRadius: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -113,113 +172,111 @@ export default function WardenAttendancePage() {
         ))}
       </div>
 
-      {/* Hostel + tabs */}
+      {/* Toolbar */}
       <div className="glass" style={{ padding: '10px 14px', borderRadius: 12, marginBottom: 20, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        <select value={selectedHostel} onChange={e => setSelectedHostel(e.target.value)}
-          className="input-field" style={{ width: 'auto', minWidth: 200 }}>
-          {hostels.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
-        </select>
+        {hostels.length > 1 && (
+          <select value={selectedHostel} onChange={e => setSelectedHostel(e.target.value)} className="input-field" style={{ width: 'auto', minWidth: 180 }}>
+            {hostels.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
+          </select>
+        )}
+        <form onSubmit={handleSearch} style={{ display: 'flex', gap: 6, flex: 1, minWidth: 180 }}>
+          <div style={{ position: 'relative', flex: 1 }}>
+            <HiOutlineMagnifyingGlass style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} size={16} />
+            <input value={search} onChange={e => setSearch(e.target.value)} className="input-field" style={{ paddingLeft: 36 }} placeholder="Search students..." />
+          </div>
+        </form>
         <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
-          {[
-            { id: 'records', label: '📋 Records' },
-            { id: 'mark',    label: '✏️ Mark' },
-            { id: 'qr',      label: '📱 QR' },
-          ].map(t => (
+          {[{ id: 'mark', label: '✏️ Mark' }, { id: 'qr', label: '📱 QR' }].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
-              style={{
-                padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                fontSize: 12, fontWeight: 600,
+              style={{ padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
                 background: tab === t.id ? 'var(--color-primary)' : 'rgba(226,114,91,0.08)',
-                color: tab === t.id ? '#fff' : 'var(--color-text-muted)',
-                transition: 'all 0.15s',
-              }}>
+                color: tab === t.id ? '#fff' : 'var(--color-text-muted)', transition: 'all 0.15s' }}>
               {t.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Tab: Records */}
-      {tab === 'records' && (
-        loading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {[1,2,3,4].map(i => <div key={i} className="skeleton" style={{ height: 60, borderRadius: 12 }} />)}
-          </div>
-        ) : records.length === 0 ? (
-          <div className="glass" style={{ padding: 60, borderRadius: 16, textAlign: 'center' }}>
-            <HiOutlineCalendarDays size={48} style={{ color: 'var(--color-primary)', margin: '0 auto 16px', display: 'block' }} />
-            <p style={{ fontWeight: 600, fontSize: 16 }}>No attendance records</p>
-            <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 6 }}>Start marking attendance using QR or manual entry.</p>
-          </div>
-        ) : (
-          <div className="table-wrapper">
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-                  {['Student', 'Date', 'Status', 'Method'].map(h => (
-                    <th key={h} style={{ padding: '12px 14px', textAlign: 'left', fontWeight: 700, color: 'var(--color-text-muted)', fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {records.slice(0, 50).map((r, i) => (
-                  <motion.tr key={r._id || i}
-                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
-                    style={{ borderBottom: '1px solid rgba(52,48,42,0.5)' }}>
-                    <td style={{ padding: '12px 14px' }}>
-                      <span style={{ fontWeight: 600 }}>{r.studentId?.firstName} {r.studentId?.lastName}</span>
-                    </td>
-                    <td style={{ padding: '12px 14px', color: 'var(--color-text-muted)' }}>
-                      {new Date(r.date || r.createdAt).toLocaleDateString('en-IN')}
-                    </td>
-                    <td style={{ padding: '12px 14px' }}>
-                      <span style={{
-                        padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-                        background: r.status === 'PRESENT' ? 'rgba(111,174,102,0.15)' : r.status === 'LATE' ? 'rgba(244,162,89,0.15)' : 'rgba(225,85,84,0.15)',
-                        color: r.status === 'PRESENT' ? '#6fae66' : r.status === 'LATE' ? '#f4a259' : '#e15554',
-                      }}>
-                        {r.status}
-                      </span>
-                    </td>
-                    <td style={{ padding: '12px 14px', color: 'var(--color-text-muted)' }}>{r.method || 'Manual'}</td>
-                  </motion.tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )
-      )}
-
-      {/* Tab: Mark manually */}
+      {/* Tab: Mark Attendance */}
       {tab === 'mark' && (
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
-          className="glass" style={{ padding: 28, borderRadius: 16, maxWidth: 480 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-            <div className="icon-box icon-box-md" style={{ background: 'rgba(226,114,91,0.15)' }}>
-              <HiOutlineClipboardDocumentCheck size={20} color="var(--color-primary)" />
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
+          {/* Quick actions */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: 'var(--color-text-muted)', fontWeight: 600 }}>Quick:</span>
+            {STATUS_OPTIONS.map(opt => (
+              <button key={opt.value} onClick={() => markAll(opt.value)}
+                style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${opt.color}30`, background: opt.bg, color: opt.color, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+                All {opt.label}
+              </button>
+            ))}
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{markedCount}/{filteredStudents.length} marked</span>
+              <button onClick={submitBulk} disabled={submitting} className="btn-primary" style={{ padding: '8px 20px', fontSize: 13 }}>
+                {submitting ? 'Saving…' : '✓ Save Attendance'}
+              </button>
             </div>
-            <h3 style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Fraunces', serif" }}>Manual Attendance</h3>
           </div>
-          <form onSubmit={markManual}>
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 6, display: 'block', letterSpacing: 0.4, textTransform: 'uppercase' }}>Student ID</label>
-              <input value={manualForm.studentId} onChange={e => setManualForm(f => ({ ...f, studentId: e.target.value }))}
-                className="input-field" placeholder="Paste student user ID" required />
+
+          {loading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[1, 2, 3, 4, 5].map(i => <div key={i} className="skeleton" style={{ height: 60, borderRadius: 12 }} />)}
             </div>
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 6, display: 'block', letterSpacing: 0.4, textTransform: 'uppercase' }}>Status</label>
-              <select value={manualForm.status} onChange={e => setManualForm(f => ({ ...f, status: e.target.value }))}
-                className="input-field">
-                <option value="PRESENT">Present</option>
-                <option value="ABSENT">Absent</option>
-                <option value="LATE">Late</option>
-              </select>
+          ) : filteredStudents.length === 0 ? (
+            <div className="glass" style={{ padding: 60, borderRadius: 16, textAlign: 'center' }}>
+              <HiOutlineUsers size={48} style={{ color: 'var(--color-primary)', margin: '0 auto 16px', display: 'block' }} />
+              <p style={{ fontWeight: 600, fontSize: 16 }}>No students assigned</p>
+              <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 6 }}>Students assigned to your hostel will appear here.</p>
             </div>
-            <button type="submit" disabled={marking} className="btn-primary"
-              style={{ width: '100%', padding: 12, fontSize: 14 }}>
-              {marking ? 'Marking…' : '✓ Mark Attendance'}
-            </button>
-          </form>
+          ) : (
+            <div className="glass" style={{ borderRadius: 16, overflow: 'hidden' }}>
+              <div className="table-wrapper">
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+                      {['Student', 'Roll No', 'Room', 'Status'].map(h => (
+                        <th key={h} style={{ padding: '12px 14px', textAlign: 'left', fontWeight: 700, color: 'var(--color-text-muted)', fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredStudents.map((s, i) => (
+                      <motion.tr key={s._id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}
+                        style={{ borderBottom: '1px solid rgba(52,48,42,0.5)' }}>
+                        <td style={{ padding: '10px 14px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ width: 34, height: 34, borderRadius: 10, background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#fff', fontSize: 12, flexShrink: 0 }}>
+                              {s.firstName?.[0]}{s.lastName?.[0]}
+                            </div>
+                            <div>
+                              <p style={{ fontWeight: 600 }}>{s.firstName} {s.lastName}</p>
+                              <p style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{s.email}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>{s.studentProfile?.rollNumber || '—'}</td>
+                        <td style={{ padding: '10px 14px', color: 'var(--color-text-muted)' }}>
+                          {s.studentProfile?.roomId?.roomNumber ? `${s.studentProfile.roomId.roomNumber} (F${s.studentProfile.roomId.floor})` : '—'}
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <select
+                            value={attendance[s._id] || ''}
+                            onChange={(e) => setStatus(s._id, e.target.value)}
+                            className="input-field"
+                            style={{ width: '130px', padding: '8px 12px', fontSize: 12, fontWeight: 600 }}
+                          >
+                            <option value="" disabled>Select...</option>
+                            {STATUS_OPTIONS.map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                        </td>
+                      </motion.tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </motion.div>
       )}
 
@@ -232,25 +289,17 @@ export default function WardenAttendancePage() {
           </div>
           <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8, fontFamily: "'Fraunces', serif" }}>QR Attendance</h3>
           <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 24, lineHeight: 1.6 }}>
-            Generate a QR code that students can scan to mark their attendance. Valid for 10 minutes.
+            Generate a QR code that students can scan to mark their attendance. Valid for 5 minutes.
           </p>
-
-          {qrData ? (
+          {qrData && (
             <div style={{ marginBottom: 20 }}>
               <div className="glass" style={{ padding: 20, borderRadius: 14, marginBottom: 14 }}>
-                <p style={{ fontSize: 13, fontWeight: 600, wordBreak: 'break-all', color: 'var(--color-accent-light)' }}>
-                  Session: {qrData.sessionId || qrData.qrCode || 'Active'}
-                </p>
-                {qrData.qrCodeImage && (
-                  <img src={qrData.qrCodeImage} alt="QR" style={{ maxWidth: 200, margin: '16px auto 0', display: 'block', borderRadius: 12 }} />
-                )}
+                {qrData.qrDataUrl && <img src={qrData.qrDataUrl} alt="QR" style={{ maxWidth: 200, margin: '0 auto', display: 'block', borderRadius: 12 }} />}
               </div>
-              <p style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>⏱ Expires in 10 minutes</p>
+              <p style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>⏱ Expires in 5 minutes</p>
             </div>
-          ) : null}
-
-          <button onClick={generateQR} disabled={generating} className="btn-primary"
-            style={{ padding: '12px 28px', fontSize: 14 }}>
+          )}
+          <button onClick={generateQR} disabled={generating} className="btn-primary" style={{ padding: '12px 28px', fontSize: 14 }}>
             {generating ? 'Generating…' : '📱 Generate QR Code'}
           </button>
         </motion.div>

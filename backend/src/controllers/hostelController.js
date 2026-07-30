@@ -140,3 +140,107 @@ exports.updateRoom = async (req, res) => {
     res.status(200).json({ success: true, message: 'Updated', data: { room } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
 };
+
+// ===== SMART ROOM ALLOCATION =====
+exports.autoAllocateRoom = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const { studentId, hostelId, preferredFloor, preferredType } = req.body;
+    const student = await User.findById(studentId);
+    if (!student) { await session.abortTransaction(); return res.status(404).json({ success: false, message: 'Student not found' }); }
+    if (student.studentProfile?.roomId) { await session.abortTransaction(); return res.status(400).json({ success: false, message: 'Student already has a room assigned' }); }
+
+    const hostel = await Hostel.findById(hostelId);
+    if (!hostel) { await session.abortTransaction(); return res.status(404).json({ success: false, message: 'Hostel not found' }); }
+
+    // Build room query: find rooms with available beds
+    const roomFilter = { hostelId, status: { $in: ['AVAILABLE'] } };
+    if (preferredFloor) roomFilter.floor = preferredFloor;
+    if (preferredType) roomFilter.type = preferredType;
+
+    let rooms = await Room.find(roomFilter).session(session);
+
+    // If no rooms match preferences, broaden the search
+    if (rooms.length === 0) {
+      rooms = await Room.find({ hostelId, status: { $in: ['AVAILABLE'] } }).session(session);
+    }
+
+    // Filter rooms with available capacity
+    const availableRooms = rooms.filter(r => r.occupants.length < r.capacity);
+
+    if (availableRooms.length === 0) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'No available rooms in this hostel' });
+    }
+
+    // Scoring algorithm: prefer rooms that match student preferences
+    const studentYear = student.studentProfile?.year || 1;
+    const budgetPref = student.studentProfile?.budgetPreference || 'STANDARD';
+
+    const scored = availableRooms.map(room => {
+      let score = 0;
+
+      // Prefer rooms with fewer occupants for comfort
+      score += (room.capacity - room.occupants.length) * 10;
+
+      // Year matching: prefer grouping same-year students
+      // (We can't check other occupants' years without more queries, so skip for now)
+
+      // Budget matching
+      if (budgetPref === 'ECONOMY' && !room.isAirConditioned) score += 20;
+      if (budgetPref === 'PREMIUM' && room.isAirConditioned) score += 20;
+      if (budgetPref === 'STANDARD') score += 10;
+
+      // Preferred floor bonus
+      if (preferredFloor && room.floor === preferredFloor) score += 15;
+
+      // Lower floor preferred for freshers
+      if (studentYear === 1 && room.floor <= 1) score += 10;
+
+      return { room, score };
+    });
+
+    // Sort by score descending, pick the best
+    scored.sort((a, b) => b.score - a.score);
+    const bestRoom = scored[0].room;
+
+    // Allocate
+    bestRoom.occupants.push(new mongoose.Types.ObjectId(studentId));
+    if (bestRoom.occupants.length >= bestRoom.capacity) bestRoom.status = 'OCCUPIED';
+    await bestRoom.save({ session });
+
+    await User.findByIdAndUpdate(studentId, {
+      'studentProfile.roomId': bestRoom._id,
+      'studentProfile.hostelId': bestRoom.hostelId,
+    }, { session });
+
+    await Hostel.findByIdAndUpdate(bestRoom.hostelId, { $inc: { occupiedBeds: 1 } }, { session });
+    await session.commitTransaction();
+
+    // Activity log
+    const ActivityLog = require('../models/ActivityLog');
+    await ActivityLog.create({
+      userId: req.user.userId, userRole: req.user.role, action: 'ROOM_ALLOCATED',
+      description: `Auto-allocated room ${bestRoom.roomNumber} to ${student.firstName} ${student.lastName}`,
+      targetType: 'Room', targetId: bestRoom._id,
+      metadata: { studentId, roomNumber: bestRoom.roomNumber, score: scored[0].score },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'],
+    });
+
+    // Socket notification
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user_${studentId}`).emit('room:allocated', { room: bestRoom });
+      io.to(`hostel_${hostelId}`).emit('room:updated', { room: bestRoom });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Auto-allocated room ${bestRoom.roomNumber} (Floor ${bestRoom.floor}, Score: ${scored[0].score})`,
+      data: { room: bestRoom, score: scored[0].score, alternatives: scored.slice(1, 4).map(s => ({ roomNumber: s.room.roomNumber, floor: s.room.floor, score: s.score })) },
+    });
+  } catch (e) { await session.abortTransaction(); res.status(500).json({ success: false, message: 'Auto-allocation failed', error: e.message }); }
+  finally { session.endSession(); }
+};
+

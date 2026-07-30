@@ -1,31 +1,57 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { FiUsers, FiGrid, FiAlertCircle, FiCalendar, FiCheckCircle, FiClock, FiFileText } from 'react-icons/fi';
+import { FiUsers, FiAlertCircle, FiCalendar, FiCheckCircle, FiClock, FiFileText } from 'react-icons/fi';
 import api from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
+import { useSocket } from '@/store/socketProvider';
+import toast from 'react-hot-toast';
 
 export default function WardenDashboard() {
   const { user } = useAuthStore();
+  const { socket, isConnected } = useSocket();
   const [complaints, setComplaints] = useState([]);
   const [passes, setPasses] = useState([]);
+  const [studentCount, setStudentCount] = useState(0);
+  const [todayAttendance, setTodayAttendance] = useState({ present: 0, absent: 0, total: 0 });
 
+  const loadData = async () => {
+    const [cRes, pRes, sRes] = await Promise.all([
+      api.get('/complaints?limit=10').catch(() => ({ data: { complaints: [] } })),
+      api.get('/gate-passes?status=PENDING&limit=10').catch(() => ({ data: { passes: [] } })),
+      api.get('/attendance/warden/students').catch(() => ({ data: { students: [] } })),
+    ]);
+    setComplaints(cRes.data?.complaints || []);
+    setPasses(pRes.data?.passes || []);
+
+    const students = sRes.data?.students || [];
+    setStudentCount(students.length);
+    const present = students.filter(s => s.todayStatus === 'PRESENT' || s.todayStatus === 'LATE').length;
+    const absent = students.filter(s => s.todayStatus === 'ABSENT').length;
+    setTodayAttendance({ present, absent, total: students.length });
+  };
+
+  useEffect(() => { loadData(); }, []);
+
+  // Real-time listeners
   useEffect(() => {
-    const load = async () => {
-      const [cRes, pRes] = await Promise.all([
-        api.get('/complaints?limit=10').catch(() => ({ data: { complaints: [] } })),
-        api.get('/gate-passes?status=PENDING&limit=10').catch(() => ({ data: { passes: [] } })),
-      ]);
-      setComplaints(cRes.data?.complaints || []);
-      setPasses(pRes.data?.passes || []);
+    if (!socket) return;
+    const onStudentAdded = () => { loadData(); toast('New student added to your hostel!', { icon: '👤' }); };
+    const onAttendanceUpdate = () => { loadData(); };
+    socket.on('student:added', onStudentAdded);
+    socket.on('attendance:updated', onAttendanceUpdate);
+    socket.on('attendance:bulk-updated', onAttendanceUpdate);
+    return () => {
+      socket.off('student:added', onStudentAdded);
+      socket.off('attendance:updated', onAttendanceUpdate);
+      socket.off('attendance:bulk-updated', onAttendanceUpdate);
     };
-    load();
-  }, []);
+  }, [socket]);
 
   const stats = [
+    { icon: FiUsers, label: 'Assigned Students', value: studentCount, color: '#06b6d4' },
+    { icon: FiCheckCircle, label: 'Present Today', value: todayAttendance.present, color: '#10b981' },
     { icon: FiAlertCircle, label: 'Open Complaints', value: complaints.filter(c => c.status === 'OPEN').length, color: '#f59e0b' },
-    { icon: FiClock, label: 'In Progress', value: complaints.filter(c => c.status === 'IN_PROGRESS').length, color: '#06b6d4' },
-    { icon: FiCheckCircle, label: 'Resolved Today', value: complaints.filter(c => c.status === 'RESOLVED').length, color: '#10b981' },
     { icon: FiFileText, label: 'Pending Passes', value: passes.length, color: '#7c3aed' },
   ];
 
@@ -33,9 +59,17 @@ export default function WardenDashboard() {
 
   return (
     <div>
-      <div style={{ marginBottom: 32 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 800 }}>Warden Dashboard</h1>
-        <p style={{ color: '#94a3b8', marginTop: 4, fontSize: 14 }}>Welcome, {user?.firstName} {user?.lastName}</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32, flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <h1 style={{ fontSize: 28, fontWeight: 800 }}>Warden Dashboard</h1>
+          <p style={{ color: '#94a3b8', marginTop: 4, fontSize: 14 }}>Welcome, {user?.firstName} {user?.lastName}</p>
+        </div>
+        {isConnected && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 20, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)' }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} className="pulse-glow-teal" />
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#10b981' }}>Live</span>
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16, marginBottom: 32 }}>
@@ -55,8 +89,29 @@ export default function WardenDashboard() {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+      {/* Attendance overview bar */}
+      {todayAttendance.total > 0 && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
+          className="glass" style={{ padding: 20, borderRadius: 16, marginBottom: 24 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Today&apos;s Attendance</h3>
+          <div style={{ display: 'flex', gap: 4, height: 12, borderRadius: 6, overflow: 'hidden', background: 'rgba(52,48,42,0.5)' }}>
+            {todayAttendance.present > 0 && (
+              <div style={{ width: `${(todayAttendance.present / todayAttendance.total) * 100}%`, background: '#10b981', borderRadius: 4, transition: 'width 0.5s ease' }} />
+            )}
+            {todayAttendance.absent > 0 && (
+              <div style={{ width: `${(todayAttendance.absent / todayAttendance.total) * 100}%`, background: '#ef4444', borderRadius: 4, transition: 'width 0.5s ease' }} />
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 20, marginTop: 10, fontSize: 12, color: '#94a3b8' }}>
+            <span>✅ {todayAttendance.present} Present</span>
+            <span>❌ {todayAttendance.absent} Absent</span>
+            <span>📊 {todayAttendance.total} Total</span>
+          </div>
+        </motion.div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
           className="glass" style={{ padding: 24, borderRadius: 16 }}>
           <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Recent Complaints</h3>
           {complaints.length === 0 ? <p style={{ color: '#94a3b8', fontSize: 14 }}>No complaints</p> : (
@@ -74,7 +129,7 @@ export default function WardenDashboard() {
           )}
         </motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}
           className="glass" style={{ padding: 24, borderRadius: 16 }}>
           <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Pending Gate Passes</h3>
           {passes.length === 0 ? <p style={{ color: '#94a3b8', fontSize: 14 }}>No pending passes</p> : (

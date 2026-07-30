@@ -32,8 +32,8 @@ export default function WardenGatepassesPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/gatepasses?limit=50');
-      if (res.success) setPasses(res.data?.gatePasses || res.data || []);
+      const res = await api.get('/gate-passes?limit=50');
+      if (res.success) setPasses(res.data?.passes || []);
     } catch {}
     setLoading(false);
   };
@@ -45,7 +45,7 @@ export default function WardenGatepassesPage() {
   const approve = async () => {
     setActing(true);
     try {
-      const res = await api.put(`/gatepasses/${selected._id}/approve`);
+      const res = await api.put(`/gate-passes/${selected._id}/approve`);
       if (res.success) { toast.success('Gate pass approved ✓'); load(); setSelected(null); }
       else toast.error(res.message || 'Failed');
     } catch { toast.error('Server error'); }
@@ -56,7 +56,7 @@ export default function WardenGatepassesPage() {
     if (!reason.trim()) return toast.error('Provide a rejection reason');
     setActing(true);
     try {
-      const res = await api.put(`/gatepasses/${selected._id}/reject`, { rejectionReason: reason });
+      const res = await api.put(`/gate-passes/${selected._id}/reject`, { rejectionReason: reason });
       if (res.success) { toast.success('Gate pass rejected'); setReason(''); load(); setSelected(null); }
       else toast.error(res.message || 'Failed');
     } catch { toast.error('Server error'); }

@@ -47,6 +47,15 @@ exports.register = async (req, res) => {
     await User.findByIdAndUpdate(user._id, { refreshToken });
     setTokenCookies(res, accessToken, refreshToken);
 
+    // Emit real-time event for new student/user
+    const io = req.app.get('io');
+    if (io) {
+      if (user.role === 'STUDENT' && user.studentProfile?.hostelId) {
+        io.to(`hostel_${user.studentProfile.hostelId}`).emit('student:added', user.toJSON());
+      }
+      io.to('role_SUPER_ADMIN').emit('user:added', user.toJSON());
+    }
+
     res.status(201).json({ success: true, message: 'Registration successful', data: { user, accessToken } });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Registration failed', error: error.message });
@@ -190,6 +199,17 @@ exports.updateUser = async (req, res) => {
     delete updates.refreshToken;
     const user = await User.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    // Emit real-time update
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user_${user._id}`).emit('user:updated', user.toJSON());
+      if (user.role === 'STUDENT' && user.studentProfile?.hostelId) {
+        io.to(`hostel_${user.studentProfile.hostelId}`).emit('student:updated', user.toJSON());
+      }
+      io.to('role_SUPER_ADMIN').emit('user:updated', user.toJSON());
+    }
+
     res.status(200).json({ success: true, message: 'User updated', data: { user } });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Update failed', error: error.message });
@@ -200,6 +220,16 @@ exports.deleteUser = async (req, res) => {
   try {
     const user = await User.findByIdAndUpdate(req.params.id, { isActive: false }, { new: true });
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    // Emit real-time event
+    const io = req.app.get('io');
+    if (io) {
+      if (user.role === 'STUDENT' && user.studentProfile?.hostelId) {
+        io.to(`hostel_${user.studentProfile.hostelId}`).emit('student:removed', { userId: user._id });
+      }
+      io.to('role_SUPER_ADMIN').emit('user:removed', { userId: user._id });
+    }
+
     res.status(200).json({ success: true, message: 'User deactivated' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Delete failed', error: error.message });

@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
+import { SocketProvider } from '@/store/socketProvider';
 
 export default function Providers({ children }) {
   const [mounted, setMounted] = useState(false);
@@ -18,7 +19,9 @@ export default function Providers({ children }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
+      <SocketProvider>
+        {children}
+      </SocketProvider>
       {mounted && (
         <Toaster
           position="top-right"

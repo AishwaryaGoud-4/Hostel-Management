@@ -16,5 +16,6 @@ router.get('/:hostelId/rooms', requireAny, hostel.getRoomsByHostel);
 router.put('/rooms/:id', requireWarden, hostel.updateRoom);
 router.post('/rooms/allocate', requireWarden, hostel.allocateRoom);
 router.post('/rooms/deallocate', requireWarden, hostel.deallocateRoom);
+router.post('/rooms/auto-allocate', requireAdmin, hostel.autoAllocateRoom);
 
 module.exports = router;

@@ -1,5 +1,7 @@
 const jwt = require('jsonwebtoken');
 const config = require('../config');
+const User = require('../models/User');
+const Hostel = require('../models/Hostel');
 
 const setupSocket = (io) => {
   // Auth middleware for socket connections
@@ -15,7 +17,7 @@ const setupSocket = (io) => {
     }
   });
 
-  io.on('connection', (socket) => {
+  io.on('connection', async (socket) => {
     console.log(`🔌 User connected: ${socket.user.email} (${socket.user.role})`);
 
     // Join personal room
@@ -24,7 +26,35 @@ const setupSocket = (io) => {
     // Join role-based rooms
     socket.join(`role_${socket.user.role}`);
 
-    // Join hostel room if warden/staff
+    // Auto-join hostel rooms based on role
+    try {
+      if (socket.user.role === 'WARDEN') {
+        // Find hostels managed by this warden
+        const hostels = await Hostel.find({ wardenId: socket.user.userId, isActive: true });
+        hostels.forEach(h => {
+          socket.join(`hostel_${h._id}`);
+          console.log(`  → Warden ${socket.user.email} auto-joined hostel_${h._id} (${h.name})`);
+        });
+      } else if (socket.user.role === 'STUDENT') {
+        // Find student's hostel
+        const student = await User.findById(socket.user.userId);
+        if (student?.studentProfile?.hostelId) {
+          socket.join(`hostel_${student.studentProfile.hostelId}`);
+          console.log(`  → Student ${socket.user.email} auto-joined hostel_${student.studentProfile.hostelId}`);
+        }
+      } else if (socket.user.role === 'SUPER_ADMIN') {
+        // Admin joins all hostels
+        const allHostels = await Hostel.find({ isActive: true });
+        allHostels.forEach(h => {
+          socket.join(`hostel_${h._id}`);
+        });
+        console.log(`  → Admin ${socket.user.email} joined all ${allHostels.length} hostel rooms`);
+      }
+    } catch (err) {
+      console.error('  ⚠ Error auto-joining hostel rooms:', err.message);
+    }
+
+    // Manual hostel join (backup)
     socket.on('join:hostel', (hostelId) => {
       socket.join(`hostel_${hostelId}`);
       console.log(`  → ${socket.user.email} joined hostel_${hostelId}`);

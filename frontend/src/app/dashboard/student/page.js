@@ -1,34 +1,63 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { FiGrid, FiUsers, FiAlertCircle, FiCalendar, FiCheckCircle, FiClock, FiAlertTriangle, FiDollarSign } from 'react-icons/fi';
+import { FiGrid, FiAlertCircle, FiCalendar, FiCheckCircle, FiAlertTriangle, FiDollarSign } from 'react-icons/fi';
 import api from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
+import { useSocket } from '@/store/socketProvider';
+import toast from 'react-hot-toast';
 
 const StatusBadge = ({ status }) => {
   const map = { OPEN: 'badge-open', IN_PROGRESS: 'badge-progress', RESOLVED: 'badge-resolved', CLOSED: 'badge-resolved', ESCALATED: 'badge-critical', CRITICAL: 'badge-critical', PENDING: 'badge-pending' };
   return <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600 }} className={map[status] || 'badge-pending'}>{status}</span>;
 };
 
+const TODAY_STATUS_LABELS = {
+  PRESENT: { label: '✅ Present', color: '#10b981' },
+  ABSENT: { label: '❌ Absent', color: '#ef4444' },
+  ON_LEAVE: { label: '🟡 On Leave', color: '#f59e0b' },
+  LATE: { label: '⏰ Late', color: '#8b5cf6' },
+};
+
 export default function StudentDashboard() {
   const { user } = useAuthStore();
+  const { socket, isConnected } = useSocket();
   const [complaints, setComplaints] = useState([]);
   const [fees, setFees] = useState({ invoices: [], totalDue: 0 });
-  const [attendance, setAttendance] = useState({ percentage: 0, presentCount: 0, totalDays: 0 });
+  const [attendance, setAttendance] = useState({ percentage: 0, presentCount: 0, totalDays: 0, todayStatus: null });
 
+  const loadData = async () => {
+    const [cRes, fRes, aRes] = await Promise.all([
+      api.get('/complaints?limit=5').catch(() => ({ data: { complaints: [] } })),
+      api.get('/fees/my').catch(() => ({ data: { invoices: [], totalDue: 0 } })),
+      api.get('/attendance/my').catch(() => ({ data: { percentage: 0, presentCount: 0, totalDays: 0, todayStatus: null } })),
+    ]);
+    setComplaints(cRes.data?.complaints || []);
+    setFees(fRes.data || { invoices: [], totalDue: 0 });
+    setAttendance(aRes.data || { percentage: 0, presentCount: 0, totalDays: 0, todayStatus: null });
+  };
+
+  useEffect(() => { loadData(); }, []);
+
+  // Real-time attendance updates
   useEffect(() => {
-    const load = async () => {
-      const [cRes, fRes, aRes] = await Promise.all([
-        api.get('/complaints?limit=5').catch(() => ({ data: { complaints: [] } })),
-        api.get('/fees/my').catch(() => ({ data: { invoices: [], totalDue: 0 } })),
-        api.get('/attendance/my').catch(() => ({ data: { percentage: 0, presentCount: 0, totalDays: 0 } })),
-      ]);
-      setComplaints(cRes.data?.complaints || []);
-      setFees(fRes.data || { invoices: [], totalDue: 0 });
-      setAttendance(aRes.data || { percentage: 0, presentCount: 0, totalDays: 0 });
+    if (!socket) return;
+    const onAttendanceUpdate = () => {
+      loadData();
+      toast('Your attendance has been updated!', { icon: '📋' });
     };
-    load();
-  }, []);
+    const onUserUpdate = (data) => {
+      toast('Your profile has been updated!', { icon: '👤' });
+    };
+    socket.on('attendance:updated', onAttendanceUpdate);
+    socket.on('user:updated', onUserUpdate);
+    return () => {
+      socket.off('attendance:updated', onAttendanceUpdate);
+      socket.off('user:updated', onUserUpdate);
+    };
+  }, [socket]);
+
+  const todayInfo = TODAY_STATUS_LABELS[attendance.todayStatus];
 
   const quickStats = [
     { icon: FiGrid, label: 'My Room', value: user?.studentProfile?.roomId ? 'Assigned' : 'Not Assigned', color: '#7c3aed' },
@@ -39,20 +68,34 @@ export default function StudentDashboard() {
 
   return (
     <div>
-      <div style={{ marginBottom: 32 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 800 }}>Hello, <span className="gradient-text">{user?.firstName}</span> 👋</h1>
-        <p style={{ color: '#94a3b8', marginTop: 4, fontSize: 14 }}>
-          {user?.studentProfile?.rollNumber && `Roll: ${user.studentProfile.rollNumber} · `}
-          {user?.studentProfile?.course} {user?.studentProfile?.department && `· ${user.studentProfile.department}`}
-        </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32, flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <h1 style={{ fontSize: 28, fontWeight: 800 }}>Hello, <span className="gradient-text">{user?.firstName}</span> 👋</h1>
+          <p style={{ color: '#94a3b8', marginTop: 4, fontSize: 14 }}>
+            {user?.studentProfile?.rollNumber && `Roll: ${user.studentProfile.rollNumber} · `}
+            {user?.studentProfile?.course} {user?.studentProfile?.department && `· ${user.studentProfile.department}`}
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {todayInfo && (
+            <div style={{ padding: '6px 14px', borderRadius: 10, background: `${todayInfo.color}15`, border: `1px solid ${todayInfo.color}30` }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: todayInfo.color }}>{todayInfo.label}</span>
+            </div>
+          )}
+          {isConnected && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 20, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)' }}>
+              <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#10b981' }} className="pulse-glow-teal" />
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#10b981' }}>Live</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Quick Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16, marginBottom: 32 }}>
         {quickStats.map((stat, i) => (
           <motion.div key={i} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
-            className="glass card-hover" style={{ padding: 20, borderRadius: 16 }}
-          >
+            className="glass card-hover" style={{ padding: 20, borderRadius: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ width: 40, height: 40, borderRadius: 10, background: `${stat.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <stat.icon size={20} color={stat.color} />
@@ -69,8 +112,7 @@ export default function StudentDashboard() {
       {/* Attendance Warning */}
       {attendance.percentage > 0 && attendance.percentage < 75 && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-          style={{ padding: 16, borderRadius: 12, marginBottom: 24, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', display: 'flex', alignItems: 'center', gap: 12 }}
-        >
+          style={{ padding: 16, borderRadius: 12, marginBottom: 24, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', display: 'flex', alignItems: 'center', gap: 12 }}>
           <FiAlertTriangle size={20} color="#ef4444" />
           <div>
             <p style={{ fontWeight: 600, fontSize: 14, color: '#f87171' }}>Low Attendance Warning!</p>
@@ -81,8 +123,7 @@ export default function StudentDashboard() {
 
       {/* Recent Complaints */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
-        className="glass" style={{ padding: 24, borderRadius: 16, marginBottom: 24 }}
-      >
+        className="glass" style={{ padding: 24, borderRadius: 16, marginBottom: 24 }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Recent Complaints</h3>
         {complaints.length === 0 ? (
           <p style={{ color: '#94a3b8', fontSize: 14 }}>No complaints filed yet.</p>
@@ -103,8 +144,7 @@ export default function StudentDashboard() {
 
       {/* Recent Fees */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}
-        className="glass" style={{ padding: 24, borderRadius: 16 }}
-      >
+        className="glass" style={{ padding: 24, borderRadius: 16 }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Fee Summary</h3>
         {fees.invoices?.length === 0 ? (
           <p style={{ color: '#94a3b8', fontSize: 14 }}>No invoices found.</p>
@@ -128,4 +168,3 @@ export default function StudentDashboard() {
     </div>
   );
 }
-

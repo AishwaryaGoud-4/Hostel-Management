@@ -1,20 +1,78 @@
 const Complaint = require('../models/Complaint');
 const Notification = require('../models/Notification');
+const ActivityLog = require('../models/ActivityLog');
 const { generateTicketId, paginateQuery } = require('../utils/helpers');
 const config = require('../config');
+
+// ── Rule-based AI Complaint Classification (fallback) ────────────────────
+const PRIORITY_RULES = [
+  { keywords: ['fire', 'smoke', 'gas leak', 'electrical fire', 'short circuit', 'sparks', 'burning'], priority: 'CRITICAL', category: 'ELECTRICAL', estimatedHours: 1 },
+  { keywords: ['electricity', 'power', 'no light', 'fan not working', 'switch', 'socket', 'wiring', 'voltage'], priority: 'CRITICAL', category: 'ELECTRICAL', estimatedHours: 4 },
+  { keywords: ['water leak', 'pipe burst', 'flooding', 'water damage', 'sewage', 'drainage', 'overflow'], priority: 'HIGH', category: 'PLUMBING', estimatedHours: 6 },
+  { keywords: ['no water', 'tap', 'geyser', 'shower', 'bathroom', 'toilet', 'basin', 'plumbing'], priority: 'HIGH', category: 'PLUMBING', estimatedHours: 8 },
+  { keywords: ['wifi', 'internet', 'network', 'connection', 'router', 'lan', 'ethernet'], priority: 'MEDIUM', category: 'INTERNET', estimatedHours: 12 },
+  { keywords: ['bed', 'chair', 'table', 'desk', 'cupboard', 'door', 'window', 'lock', 'broken', 'furniture', 'wardrobe'], priority: 'MEDIUM', category: 'FURNITURE', estimatedHours: 24 },
+  { keywords: ['cleaning', 'dirty', 'garbage', 'waste', 'dustbin', 'sweeping', 'mopping', 'pest', 'cockroach', 'rat', 'insect'], priority: 'LOW', category: 'CLEANING', estimatedHours: 24 },
+  { keywords: ['noise', 'disturbance', 'loud', 'music', 'party', 'drunk'], priority: 'MEDIUM', category: 'NOISE', estimatedHours: 2 },
+  { keywords: ['security', 'theft', 'stolen', 'suspicious', 'break-in', 'unsafe', 'cctv'], priority: 'HIGH', category: 'SECURITY', estimatedHours: 2 },
+];
+
+function classifyComplaint(title, description) {
+  const text = `${title} ${description}`.toLowerCase();
+  let bestMatch = { priority: 'MEDIUM', category: null, confidence: 0.3, isEmergency: false, keywords: [], estimatedHours: 48 };
+
+  for (const rule of PRIORITY_RULES) {
+    const matched = rule.keywords.filter(kw => text.includes(kw));
+    if (matched.length > 0) {
+      const confidence = Math.min(0.95, 0.5 + matched.length * 0.15);
+      if (confidence > bestMatch.confidence) {
+        bestMatch = {
+          priority: rule.priority,
+          category: rule.category,
+          confidence,
+          isEmergency: rule.priority === 'CRITICAL',
+          keywords: matched,
+          estimatedHours: rule.estimatedHours,
+        };
+      }
+    }
+  }
+  return bestMatch;
+}
 
 exports.createComplaint = async (req, res) => {
   try {
     const { title, description, category, hostelId, roomId, images } = req.body;
     const ticketId = generateTicketId();
 
+    // Run local AI classification first
+    const aiResult = classifyComplaint(title, description);
+
     const complaint = await Complaint.create({
       ticketId, studentId: req.user.userId, hostelId, roomId,
-      category, title, description, images: images || [],
+      category: category || aiResult.category || 'OTHER',
+      priority: aiResult.priority,
+      title, description, images: images || [],
+      expectedResolutionDate: new Date(Date.now() + aiResult.estimatedHours * 3600000),
+      aiClassification: {
+        suggestedCategory: aiResult.category,
+        confidenceScore: aiResult.confidence,
+        isEmergency: aiResult.isEmergency,
+        keywords: aiResult.keywords,
+        processedAt: new Date(),
+      },
       statusHistory: [{ status: 'OPEN', changedBy: req.user.userId, note: 'Ticket created', timestamp: new Date() }],
     });
 
-    // Attempt AI triage
+    // If AI detected emergency, auto-escalate
+    if (aiResult.isEmergency) {
+      complaint.status = 'ESCALATED';
+      complaint.escalatedAt = new Date();
+      complaint.statusHistory.push({ status: 'ESCALATED', changedBy: req.user.userId, note: 'AI auto-escalated: emergency detected', timestamp: new Date() });
+      await complaint.save();
+    }
+
+    // Try remote AI service for more accurate results (non-blocking)
     try {
       const resp = await fetch(`${config.aiServiceUrl}/ai/triage-complaint`, {
         method: 'POST',
@@ -22,23 +80,31 @@ exports.createComplaint = async (req, res) => {
         body: JSON.stringify({ title, description }),
       });
       if (resp.ok) {
-        const aiResult = await resp.json();
+        const remoteResult = await resp.json();
         complaint.aiClassification = {
-          suggestedCategory: aiResult.category,
-          confidenceScore: aiResult.confidence,
-          isEmergency: aiResult.is_emergency,
-          keywords: aiResult.keywords || [],
+          suggestedCategory: remoteResult.category,
+          confidenceScore: remoteResult.confidence,
+          isEmergency: remoteResult.is_emergency,
+          keywords: remoteResult.keywords || [],
           processedAt: new Date(),
         };
-        if (aiResult.is_emergency) {
+        if (remoteResult.is_emergency && complaint.status !== 'ESCALATED') {
           complaint.priority = 'CRITICAL';
           complaint.status = 'ESCALATED';
           complaint.escalatedAt = new Date();
-          complaint.statusHistory.push({ status: 'ESCALATED', changedBy: req.user.userId, note: 'AI auto-escalated: emergency detected', timestamp: new Date() });
         }
         await complaint.save();
       }
-    } catch (_) { /* AI service unavailable, continue without classification */ }
+    } catch (_) { /* Remote AI unavailable, local classification already applied */ }
+
+    // Activity log
+    await ActivityLog.create({
+      userId: req.user.userId, userRole: req.user.role, action: 'COMPLAINT_CREATED',
+      description: `Complaint ${ticketId} created: ${title} [AI Priority: ${aiResult.priority}]`,
+      targetType: 'Complaint', targetId: complaint._id,
+      metadata: { aiPriority: aiResult.priority, aiConfidence: aiResult.confidence, aiCategory: aiResult.category },
+      ipAddress: req.ip, userAgent: req.headers['user-agent'],
+    });
 
     // Emit socket event
     if (req.app.get('io')) {

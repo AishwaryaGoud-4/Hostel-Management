@@ -5,6 +5,8 @@ const { requireWarden, requireAny, requireStudent } = require('../middleware/aut
 router.post('/qr/generate', requireWarden, att.generateQR);
 router.post('/qr/mark', requireStudent, att.markAttendanceQR);
 router.post('/manual', requireWarden, att.markAttendanceManual);
+router.post('/bulk', requireWarden, att.markBulkAttendance);
+router.get('/warden/students', requireWarden, att.getWardenStudents);
 router.get('/student/:studentId', requireAny, att.getStudentAttendance);
 router.get('/my', requireStudent, att.getStudentAttendance);
 router.get('/hostel/:hostelId', requireWarden, att.getHostelAttendance);
