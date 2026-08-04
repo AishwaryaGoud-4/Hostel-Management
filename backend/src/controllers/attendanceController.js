@@ -32,9 +32,25 @@ const sendAttendanceNotification = async (io, studentId, status, date, markedBy)
 // ── Generate time-bound QR token ─────────────────────────────────────────
 exports.generateQR = async (req, res) => {
   try {
-    const { hostelId } = req.body;
-    const hostel = await Hostel.findById(hostelId);
-    if (!hostel) return res.status(404).json({ success: false, message: 'Hostel not found' });
+    let { hostelId } = req.body;
+
+    // Auto-resolve hostelId if missing
+    let hostel = hostelId ? await Hostel.findById(hostelId) : null;
+    if (!hostel) {
+      const wardenHostels = await Hostel.find({ wardenId: req.user.userId, isActive: true });
+      hostel = wardenHostels[0] || await Hostel.findOne({ isActive: true });
+      if (!hostel) {
+        hostel = await Hostel.create({
+          name: 'Default Hostel',
+          code: 'DHST' + Date.now().toString(36).toUpperCase().slice(-4),
+          type: 'CO_ED', address: 'Campus', totalFloors: 3, totalRooms: 50, totalBeds: 200,
+          wardenId: req.user.userId, contactNumber: '0000000000',
+          geoLocation: { latitude: 17.385, longitude: 78.4867, radiusMeters: 500 },
+        });
+      }
+    }
+    if (!hostel) return res.status(404).json({ success: false, message: 'No hostel found' });
+    hostelId = hostel._id;
 
     const token = crypto.randomBytes(32).toString('hex');
     const payload = { hostelId, token, createdAt: Date.now(), expiresAt: Date.now() + 5 * 60 * 1000 }; // 5 min
@@ -144,10 +160,38 @@ exports.markAttendanceManual = async (req, res) => {
 // ── Bulk mark attendance (multiple students at once, by warden) ──────────
 exports.markBulkAttendance = async (req, res) => {
   try {
-    const { hostelId, records } = req.body;
+    let { hostelId, records } = req.body;
     // records = [{ studentId, status, remarks? }, ...]
     if (!Array.isArray(records) || records.length === 0) {
       return res.status(400).json({ success: false, message: 'No records provided' });
+    }
+
+    // Validate hostelId — if missing, try to find warden's assigned hostel
+    const mongoose = require('mongoose');
+    if (!hostelId || !mongoose.Types.ObjectId.isValid(hostelId)) {
+      const wardenHostels = await Hostel.find({ wardenId: req.user.userId, isActive: true });
+      if (wardenHostels.length > 0) {
+        hostelId = wardenHostels[0]._id;
+      } else {
+        // Fallback: try to find any active hostel
+        let anyHostel = await Hostel.findOne({ isActive: true });
+        if (!anyHostel) {
+          // Auto-create a default hostel for this warden
+          anyHostel = await Hostel.create({
+            name: 'Default Hostel',
+            code: 'DHST' + Date.now().toString(36).toUpperCase().slice(-4),
+            type: 'CO_ED',
+            address: 'Campus',
+            totalFloors: 3,
+            totalRooms: 50,
+            totalBeds: 200,
+            wardenId: req.user.userId,
+            contactNumber: '0000000000',
+            geoLocation: { latitude: 17.385, longitude: 78.4867, radiusMeters: 500 },
+          });
+        }
+        hostelId = anyHostel._id;
+      }
     }
 
     const io = req.app.get('io');
@@ -199,26 +243,43 @@ exports.getWardenStudents = async (req, res) => {
     const { search } = req.query;
 
     // Find hostels assigned to this warden
-    const hostels = await Hostel.find({ wardenId, isActive: true });
+    let hostels = await Hostel.find({ wardenId, isActive: true });
     
+    // Fallback: if warden has no assigned hostels, find all active hostels (dev/testing)
+    if (hostels.length === 0) {
+      hostels = await Hostel.find({ isActive: true });
+    }
+
     // Build query for students in these hostels
     const filter = {
       role: 'STUDENT',
       isActive: true,
     };
 
-    // If warden has hostels, filter by them. Otherwise, for testing purposes, return all students.
-    if (hostels.length > 0) {
-      filter['studentProfile.hostelId'] = { $in: hostels.map(h => h._id) };
-    }
+    // Include students in warden's hostels OR students with no hostel assigned
+    const hostelFilter = hostels.length > 0
+      ? { $or: [
+          { 'studentProfile.hostelId': { $in: hostels.map(h => h._id) } },
+          { 'studentProfile.hostelId': { $exists: false } },
+          { 'studentProfile.hostelId': null },
+        ]}
+      : {};
 
     if (search) {
-      filter.$or = [
+      const searchFilter = { $or: [
         { firstName: { $regex: search, $options: 'i' } },
         { lastName: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
         { 'studentProfile.rollNumber': { $regex: search, $options: 'i' } },
-      ];
+      ]};
+      // Combine both filters with $and
+      if (hostelFilter.$or) {
+        filter.$and = [hostelFilter, searchFilter];
+      } else {
+        Object.assign(filter, searchFilter);
+      }
+    } else if (hostelFilter.$or) {
+      Object.assign(filter, hostelFilter);
     }
 
     const students = await User.find(filter)

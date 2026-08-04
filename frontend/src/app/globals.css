@@ -479,18 +479,312 @@ select.input-field option { background: #211d18; color: #f5ece3; }
 .reveal { opacity: 0; transform: translateY(20px); transition: opacity var(--dur-slow) var(--ease-out-expo), transform var(--dur-slow) var(--ease-out-expo); }
 .reveal.in-view { opacity: 1; transform: none; }
 
-/* Respect user motion preferences */
+/* ═══════════════════════════════════════════════════════════════
+   16b. GRADIENT TEXT ANIMATED — slow shimmer for hero metrics
+═══════════════════════════════════════════════════════════════ */
+.gradient-text-animated {
+  background: linear-gradient(
+    90deg,
+    var(--color-primary),
+    var(--color-primary-light),
+    var(--color-accent-light),
+    var(--color-primary)
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradientTextShimmer 6s ease infinite;
+}
+@keyframes gradientTextShimmer {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   16c. BADGE CRITICAL LIVE — pulsing border + glow for urgent items
+═══════════════════════════════════════════════════════════════ */
+.badge-critical.badge-live {
+  animation: badgeCriticalPulse 2s ease-in-out infinite;
+}
+@keyframes badgeCriticalPulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(225, 85, 84, 0.3); }
+  50%      { box-shadow: 0 0 14px rgba(225, 85, 84, 0.65); }
+}
+
+/* Row with urgent left-border pulse */
+.row-urgent {
+  border-left: 3px solid var(--color-danger);
+  animation: rowUrgentPulse 2.5s ease-in-out infinite;
+}
+@keyframes rowUrgentPulse {
+  0%, 100% { border-left-color: var(--color-danger); }
+  50%      { border-left-color: rgba(225, 85, 84, 0.35); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   16d. LIVE MONITORING CUE — subtle scanline/heartbeat
+═══════════════════════════════════════════════════════════════ */
+.live-monitor-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  animation: liveMonitorPulse 2.5s ease-in-out infinite;
+}
+@keyframes liveMonitorPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(0.85); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   16e. CARD ENTRANCE VARIANTS — bounce-on-arrival for student
+═══════════════════════════════════════════════════════════════ */
+@keyframes fadeInUpBounce {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-up-bounce {
+  animation: fadeInUpBounce var(--dur-slow) var(--ease-out-back) both;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   17. DASHBOARD AURORA BACKGROUNDS — role-specific variants
+   All blobs use transform + opacity only (compositor-only).
+   will-change: transform on animated pseudo-elements only.
+   Approach: CSS-only via layered radial-gradient blobs with
+   animation-delay offsets for GPU-cheap rendering.
+   Mobile optimization: uses @media (max-width: 767px) to
+   reduce blob count, blur radius (~30%), and durations (~20%).
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Base aurora overrides ────────────────────────────────────── */
+.aurora-bg::before,
+.aurora-bg::after {
+  will-change: transform;
+}
+
+/* ── STUDENT — warm, welcoming, unhurried ─────────────────────
+   3 soft blobs: terracotta, peach, teal.
+   28-35s loops, higher opacity (0.2-0.25).
+   "Common room at golden hour" personality.
+──────────────────────────────────────────────────────────────── */
+.aurora-bg--student::before {
+  width: 560px; height: 560px;
+  background: radial-gradient(circle, rgba(226,114,91,0.24) 0%, transparent 70%);
+  top: -130px; right: -60px;
+  animation: studentBlobA 32s ease-in-out infinite alternate;
+}
+.aurora-bg--student::after {
+  width: 520px; height: 520px;
+  background: radial-gradient(circle, rgba(42,157,143,0.22) 0%, transparent 70%);
+  bottom: -100px; left: -80px;
+  animation: studentBlobB 28s ease-in-out infinite alternate;
+  animation-delay: -8s;
+}
+/* 3rd blob via box-shadow on a child element */
+.aurora-bg--student .aurora-blob-extra {
+  position: absolute;
+  width: 440px; height: 440px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(242,166,121,0.20) 0%, transparent 70%);
+  top: 40%; left: 30%;
+  filter: blur(90px);
+  pointer-events: none;
+  z-index: 0;
+  will-change: transform;
+  animation: studentBlobC 35s ease-in-out infinite alternate;
+  animation-delay: -14s;
+}
+
+@keyframes studentBlobA {
+  0%   { transform: translate(0, 0) scale(1);    opacity: 0.24; }
+  100% { transform: translate(70px, 50px) scale(1.15); opacity: 0.20; }
+}
+@keyframes studentBlobB {
+  0%   { transform: translate(0, 0) scale(1);    opacity: 0.22; }
+  100% { transform: translate(-50px, -60px) scale(1.10); opacity: 0.18; }
+}
+@keyframes studentBlobC {
+  0%   { transform: translate(0, 0) scale(1);    opacity: 0.20; }
+  100% { transform: translate(40px, -40px) scale(1.08); opacity: 0.16; }
+}
+
+/* ── WARDEN — alert, structured, monitoring ───────────────────
+   2 tighter blobs: teal-dominant + terracotta accent.
+   12-16s loops, lower opacity (0.12-0.15).
+   "Control room" personality — faster, more purposeful.
+──────────────────────────────────────────────────────────────── */
+.aurora-bg--warden::before {
+  width: 420px; height: 420px;
+  background: radial-gradient(circle, rgba(42,157,143,0.15) 0%, transparent 65%);
+  top: -80px; right: -40px;
+  animation: wardenBlobA 14s ease-in-out infinite alternate;
+}
+.aurora-bg--warden::after {
+  width: 380px; height: 380px;
+  background: radial-gradient(circle, rgba(226,114,91,0.12) 0%, transparent 65%);
+  bottom: -60px; left: -50px;
+  animation: wardenBlobB 12s ease-in-out infinite alternate;
+  animation-delay: -4s;
+}
+
+@keyframes wardenBlobA {
+  0%   { transform: translate(0, 0) scale(1);     opacity: 0.15; }
+  100% { transform: translate(30px, 20px) scale(1.06); opacity: 0.12; }
+}
+@keyframes wardenBlobB {
+  0%   { transform: translate(0, 0) scale(1);     opacity: 0.12; }
+  100% { transform: translate(-20px, -25px) scale(1.04); opacity: 0.10; }
+}
+
+/* ── MANAGEMENT — premium, executive, data-forward ────────────
+   1-2 very large, very low-opacity blobs moving extremely slowly.
+   40s+ loops, opacity 0.08-0.1.
+   "Boardroom" personality — calmest, most restrained.
+──────────────────────────────────────────────────────────────── */
+.aurora-bg--management::before {
+  width: 700px; height: 700px;
+  background: radial-gradient(circle, rgba(226,114,91,0.10) 0%, transparent 70%);
+  top: -200px; right: -150px;
+  animation: mgmtBlobA 45s ease-in-out infinite alternate;
+}
+.aurora-bg--management::after {
+  width: 650px; height: 650px;
+  background: radial-gradient(circle, rgba(42,157,143,0.08) 0%, transparent 70%);
+  bottom: -180px; left: -120px;
+  animation: mgmtBlobB 42s ease-in-out infinite alternate;
+  animation-delay: -15s;
+}
+
+@keyframes mgmtBlobA {
+  0%   { transform: translate(0, 0) scale(1);     opacity: 0.10; }
+  100% { transform: translate(40px, 25px) scale(1.05); opacity: 0.08; }
+}
+@keyframes mgmtBlobB {
+  0%   { transform: translate(0, 0) scale(1);     opacity: 0.08; }
+  100% { transform: translate(-30px, -20px) scale(1.03); opacity: 0.06; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   17b. TEAL PULSE GLOW — reassuring for student live indicators
+═══════════════════════════════════════════════════════════════ */
+@keyframes pulse-glow-accent {
+  0%, 100% { box-shadow: 0 0 5px rgba(42, 157, 143, 0.4); }
+  50%      { box-shadow: 0 0 18px rgba(42, 157, 143, 0.75); }
+}
+.pulse-glow-accent { animation: pulse-glow-accent 2.2s ease-in-out infinite; }
+
+/* ═══════════════════════════════════════════════════════════════
+   17c. NEW ROW SCALE-IN — for live socket updates in warden tables
+═══════════════════════════════════════════════════════════════ */
+@keyframes newRowScaleIn {
+  from { opacity: 0; transform: scaleY(0.85); transform-origin: top; }
+  to   { opacity: 1; transform: scaleY(1);    transform-origin: top; }
+}
+.animate-new-row {
+  animation: newRowScaleIn 0.35s var(--ease-out-expo) both;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   18. PREFERS-REDUCED-MOTION — comprehensive
+   Collapses all background animations to static gradients.
+   Keeps only opacity-based fades on content, no transform loops.
+═══════════════════════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0.15s !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Static aurora for all dashboard variants */
+  .aurora-bg::before,
+  .aurora-bg::after,
+  .aurora-bg--student .aurora-blob-extra {
+    animation: none !important;
+    will-change: auto !important;
+  }
+
+  /* Keep simple opacity fades on content */
+  .animate-fade-in,
+  .animate-fade-in-up,
+  .animate-fade-in-down,
+  .animate-fade-in-up-bounce,
+  .animate-slide-in-left,
+  .animate-slide-in-right,
+  .animate-scale-in {
+    animation: fadeIn 0.15s ease both !important;
+  }
+
+  .gradient-text-animated {
+    animation: none !important;
+  }
+
+  .pulse-glow,
+  .pulse-glow-teal,
+  .pulse-glow-accent,
+  .badge-critical.badge-live,
+  .live-monitor-dot,
+  .row-urgent,
+  .float {
+    animation: none !important;
   }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   17. MEDIA QUERIES — mobile-first breakpoints
+   19. MEDIA QUERIES — mobile-first breakpoints
 ═══════════════════════════════════════════════════════════════ */
+
+/* ── Mobile aurora optimization (<768px) ──────────────────────
+   Reduces blob count, blur radius (~30%), and durations (~20%).
+   Uses @media (max-width: 767px) for CSS-only approach.
+──────────────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  /* Base aurora: reduce blur from 90px → 63px */
+  .aurora-bg::before,
+  .aurora-bg::after {
+    filter: blur(63px);
+  }
+
+  /* Student: hide 3rd blob on mobile, reduce sizes */
+  .aurora-bg--student .aurora-blob-extra {
+    display: none;
+  }
+  .aurora-bg--student::before {
+    width: 380px; height: 380px;
+    animation-duration: 25.6s; /* 32s * 0.8 */
+  }
+  .aurora-bg--student::after {
+    width: 340px; height: 340px;
+    animation-duration: 22.4s; /* 28s * 0.8 */
+  }
+
+  /* Warden: reduce size, shorten duration */
+  .aurora-bg--warden::before {
+    width: 300px; height: 300px;
+    animation-duration: 11.2s; /* 14s * 0.8 */
+  }
+  .aurora-bg--warden::after {
+    width: 260px; height: 260px;
+    animation-duration: 9.6s; /* 12s * 0.8 */
+  }
+
+  /* Management: only show primary blob on mobile */
+  .aurora-bg--management::after {
+    opacity: 0;
+    animation: none;
+  }
+  .aurora-bg--management::before {
+    width: 450px; height: 450px;
+    animation-duration: 36s; /* 45s * 0.8 */
+  }
+
+  /* Reduce chart heights on mobile */
+  .chart-responsive { height: 200px !important; }
+}
 
 /* Small phones < 480px */
 @media (max-width: 479px) {

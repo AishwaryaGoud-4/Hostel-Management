@@ -11,11 +11,21 @@ import { useAuthStore } from '@/store/authStore';
 import { useSocket } from '@/store/socketProvider';
 import toast from 'react-hot-toast';
 
+/* ── Wanderlust Dusk tokens ──────────────────────────────────── */
+const T = {
+  success:    '#6fae66',
+  danger:     '#e15554',
+  warning:    '#f4a259',
+  primaryLight: '#f2a679',
+  textMuted:  '#a89f92',
+  accent:     '#2a9d8f',
+};
+
 const STATUS_OPTIONS = [
-  { value: 'PRESENT', label: 'Present', color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
-  { value: 'ABSENT', label: 'Absent', color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
-  { value: 'ON_LEAVE', label: 'On Leave', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
-  { value: 'LATE', label: 'Late', color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
+  { value: 'PRESENT', label: 'Present', color: T.success, bg: `${T.success}18` },
+  { value: 'ABSENT', label: 'Absent', color: T.danger, bg: `${T.danger}18` },
+  { value: 'ON_LEAVE', label: 'On Leave', color: T.warning, bg: `${T.warning}18` },
+  { value: 'LATE', label: 'Late', color: T.primaryLight, bg: `${T.primaryLight}18` },
 ];
 
 function StatusPill({ status }) {
@@ -49,31 +59,51 @@ export default function WardenAttendancePage() {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
       const res = await api.get(`/attendance/warden/students?${params}`);
-      if (res.success) {
-        setStudents(res.data.students || []);
-        setHostels(res.data.hostels || []);
-        if (!selectedHostel && res.data.hostels?.length > 0) {
-          setSelectedHostel(res.data.hostels[0]._id);
+      const data = res?.data || res;
+
+      if (res?.success !== false) {
+        const studentList = data?.students || data || [];
+        const hostelList = data?.hostels || [];
+
+        setStudents(studentList);
+        setHostels(hostelList);
+
+        // Auto-select first hostel if none selected
+        if (!selectedHostel && hostelList.length > 0) {
+          setSelectedHostel(hostelList[0]._id);
         }
+
+        // If no hostels returned but students exist, try to infer hostelId from first student
+        if (hostelList.length === 0 && studentList.length > 0) {
+          const inferredHostelId = studentList[0]?.studentProfile?.hostelId?._id || studentList[0]?.studentProfile?.hostelId;
+          if (inferredHostelId && !selectedHostel) {
+            setSelectedHostel(inferredHostelId);
+          }
+        }
+
         // Init attendance map from today's status
         const map = {};
-        (res.data.students || []).forEach(s => {
+        studentList.forEach(s => {
           map[s._id] = s.todayStatus || '';
         });
         setAttendance(map);
+
         // Compute summary
         const vals = Object.values(map);
         setTodaySummary({
-          total: res.data.students?.length || 0,
+          total: studentList.length,
           present: vals.filter(v => v === 'PRESENT').length,
           absent: vals.filter(v => v === 'ABSENT').length,
           onLeave: vals.filter(v => v === 'ON_LEAVE').length,
           late: vals.filter(v => v === 'LATE').length,
         });
       }
-    } catch { toast.error('Failed to load students'); }
+    } catch (err) {
+      console.error('Failed to load students:', err);
+      toast.error('Failed to load students');
+    }
     setLoading(false);
-  }, [search]);
+  }, [search, selectedHostel]);
 
   useEffect(() => { loadStudents(); }, []);
 
@@ -108,14 +138,21 @@ export default function WardenAttendancePage() {
       .filter(([, status]) => status)
       .map(([studentId, status]) => ({ studentId, status }));
     if (records.length === 0) return toast.error('Mark at least one student');
+
     setSubmitting(true);
     try {
-      const res = await api.post('/attendance/bulk', { hostelId: selectedHostel, records });
-      if (res.success) {
-        toast.success(`Attendance saved for ${res.data.count} students`);
+      // Backend auto-resolves hostelId if empty/invalid
+      const res = await api.post('/attendance/bulk', { hostelId: selectedHostel || undefined, records });
+      if (res?.success !== false) {
+        toast.success(`Attendance saved for ${res?.data?.count || records.length} students`);
         loadStudents();
-      } else toast.error(res.message || 'Failed');
-    } catch { toast.error('Server error'); }
+      } else {
+        toast.error(res?.message || 'Failed to save attendance');
+      }
+    } catch (err) {
+      console.error('Bulk attendance error:', err);
+      toast.error('Server error while saving attendance');
+    }
     setSubmitting(false);
   };
 
@@ -123,26 +160,25 @@ export default function WardenAttendancePage() {
     setGenerating(true);
     try {
       const res = await api.post('/attendance/qr/generate', { hostelId: selectedHostel });
-      if (res.success) { setQrData(res.data); toast.success('QR generated (5 min)'); }
-      else toast.error(res.message);
+      if (res?.success !== false) { setQrData(res.data); toast.success('QR generated (5 min)'); }
+      else toast.error(res?.message || 'Failed');
     } catch { toast.error('Server error'); }
     setGenerating(false);
   };
 
   const handleSearch = (e) => { e.preventDefault(); loadStudents(); };
 
-  const filteredStudents = selectedHostel
-    ? students.filter(s => s.studentProfile?.hostelId?._id === selectedHostel || s.studentProfile?.hostelId === selectedHostel)
-    : students;
+  // Backend already filters by hostel — use all returned students
+  const filteredStudents = students;
 
   const today = new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const markedCount = Object.values(attendance).filter(v => v).length;
 
   const stats = [
     { icon: HiOutlineUsers, label: 'Total Students', value: filteredStudents.length, color: 'var(--color-accent)' },
-    { icon: HiOutlineCheckCircle, label: 'Present', value: todaySummary.present, color: '#10b981' },
-    { icon: HiOutlineXCircle, label: 'Absent', value: todaySummary.absent, color: '#ef4444' },
-    { icon: HiOutlineClock, label: 'On Leave / Late', value: todaySummary.onLeave + todaySummary.late, color: '#f59e0b' },
+    { icon: HiOutlineCheckCircle, label: 'Present', value: todaySummary.present, color: T.success },
+    { icon: HiOutlineXCircle, label: 'Absent', value: todaySummary.absent, color: T.danger },
+    { icon: HiOutlineClock, label: 'On Leave / Late', value: todaySummary.onLeave + todaySummary.late, color: T.warning },
   ];
 
   return (
@@ -172,9 +208,17 @@ export default function WardenAttendancePage() {
         ))}
       </div>
 
+      {/* No hostel warning */}
+      {!loading && hostels.length === 0 && !selectedHostel && (
+        <div className="glass" style={{ padding: 20, borderRadius: 12, marginBottom: 20, background: `${T.warning}12`, border: `1px solid ${T.warning}30` }}>
+          <p style={{ fontSize: 13, color: T.warning, fontWeight: 600 }}>⚠️ No hostel is assigned to your account.</p>
+          <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>Ask an admin to assign a hostel to your warden account. For testing, all students are shown.</p>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="glass" style={{ padding: '10px 14px', borderRadius: 12, marginBottom: 20, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        {hostels.length > 1 && (
+        {hostels.length > 0 && (
           <select value={selectedHostel} onChange={e => setSelectedHostel(e.target.value)} className="input-field" style={{ width: 'auto', minWidth: 180 }}>
             {hostels.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
           </select>
@@ -224,7 +268,7 @@ export default function WardenAttendancePage() {
           ) : filteredStudents.length === 0 ? (
             <div className="glass" style={{ padding: 60, borderRadius: 16, textAlign: 'center' }}>
               <HiOutlineUsers size={48} style={{ color: 'var(--color-primary)', margin: '0 auto 16px', display: 'block' }} />
-              <p style={{ fontWeight: 600, fontSize: 16 }}>No students assigned</p>
+              <p style={{ fontWeight: 600, fontSize: 16 }}>No students found</p>
               <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 6 }}>Students assigned to your hostel will appear here.</p>
             </div>
           ) : (

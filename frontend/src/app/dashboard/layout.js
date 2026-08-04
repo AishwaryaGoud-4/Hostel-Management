@@ -230,8 +230,18 @@ export default function DashboardLayout({ children }) {
   const menus        = roleMenus[user?.role] || roleMenus.STUDENT;
   const handleLogout = async () => { await logout(); router.push('/login'); };
 
+  /* Role-specific aurora modifier class */
+  const auroraModifier = {
+    SUPER_ADMIN: 'aurora-bg--management',
+    WARDEN:      'aurora-bg--warden',
+    STUDENT:     'aurora-bg--student',
+    STAFF:       'aurora-bg--warden', /* Staff shares warden's "monitoring" personality */
+  }[user?.role] || '';
+
   return (
-    <div className="aurora-bg grain-overlay" style={{ display: 'flex', minHeight: '100vh', background: 'var(--color-bg)' }}>
+    <div className={`aurora-bg ${auroraModifier} grain-overlay`} style={{ display: 'flex', minHeight: '100dvh', background: 'var(--color-bg)' }}>
+      {/* Extra blob for student aurora variant (3rd blob) */}
+      {(user?.role === 'STUDENT') && <div className="aurora-blob-extra" aria-hidden="true" />}
 
       {/* Mobile overlay backdrop */}
       <div className={`mobile-overlay${mobileOpen ? ' open' : ''}`} onClick={() => setMobileOpen(false)} />

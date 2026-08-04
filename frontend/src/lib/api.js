@@ -26,15 +26,25 @@ class ApiClient {
       config.body = JSON.stringify(config.body);
     }
 
-    const response = await fetch(url, config);
+    let response;
+    try {
+      response = await fetch(url, config);
+    } catch (error) {
+      console.error(`API Fetch Error [${endpoint}]:`, error);
+      return { success: false, message: 'Network error or backend is down', data: null };
+    }
 
     // Handle token refresh
     if (response.status === 401) {
       const refreshResult = await this.refreshToken();
       if (refreshResult) {
         config.headers.Authorization = `Bearer ${this.accessToken}`;
-        const retryResponse = await fetch(url, config);
-        return retryResponse.json();
+        try {
+          const retryResponse = await fetch(url, config);
+          return retryResponse.json();
+        } catch (retryError) {
+          return { success: false, message: 'Network error during retry', data: null };
+        }
       }
       // Redirect to login
       if (typeof window !== 'undefined') {
@@ -43,7 +53,11 @@ class ApiClient {
       throw new Error('Session expired');
     }
 
-    return response.json();
+    try {
+      return await response.json();
+    } catch (jsonError) {
+      return { success: false, message: 'Invalid response from server', data: null };
+    }
   }
 
   async refreshToken() {
