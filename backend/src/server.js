@@ -42,7 +42,7 @@ app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }));
 
 // Health check / Root route
 app.get(['/', '/api/health'], (req, res) => {
-  res.json({ success: true, message: 'SHMS API is running', timestamp: new Date().toISOString() });
+  res.json({ success: true, message: 'SHMS Backend is running successfully!' });
 });
 
 // API Routes
