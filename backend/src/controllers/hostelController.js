@@ -244,3 +244,87 @@ exports.autoAllocateRoom = async (req, res) => {
   finally { session.endSession(); }
 };
 
+// ===== UNASSIGNED STUDENTS =====
+exports.getUnassignedStudents = async (req, res) => {
+  try {
+    const { search, page = 1, limit = 50 } = req.query;
+    const filter = {
+      role: 'STUDENT',
+      isActive: true,
+      $or: [
+        { 'studentProfile.roomId': null },
+        { 'studentProfile.roomId': { $exists: false } },
+      ],
+    };
+    if (search) {
+      filter.$and = [{
+        $or: [
+          { firstName: { $regex: search, $options: 'i' } },
+          { lastName: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+          { 'studentProfile.rollNumber': { $regex: search, $options: 'i' } },
+        ],
+      }];
+    }
+    const { skip } = paginateQuery(Number(page), Number(limit));
+    const [students, total] = await Promise.all([
+      User.find(filter).skip(skip).limit(Number(limit)).sort({ createdAt: -1 }),
+      User.countDocuments(filter),
+    ]);
+    res.status(200).json({
+      success: true, message: 'Unassigned students retrieved', data: { students },
+      pagination: { page: Number(page), limit: Number(limit), total, totalPages: Math.ceil(total / Number(limit)) },
+    });
+  } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
+};
+
+// ===== REASSIGN ROOM =====
+exports.reassignRoom = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const { studentId, newRoomId } = req.body;
+    const student = await User.findById(studentId).session(session);
+    if (!student) { await session.abortTransaction(); return res.status(404).json({ success: false, message: 'Student not found' }); }
+
+    const oldRoomId = student.studentProfile?.roomId;
+
+    // Remove from old room if exists
+    if (oldRoomId) {
+      const oldRoom = await Room.findById(oldRoomId).session(session);
+      if (oldRoom) {
+        oldRoom.occupants = oldRoom.occupants.filter((id) => id.toString() !== studentId);
+        if (oldRoom.occupants.length < oldRoom.capacity) oldRoom.status = 'AVAILABLE';
+        await oldRoom.save({ session });
+        await Hostel.findByIdAndUpdate(oldRoom.hostelId, { $inc: { occupiedBeds: -1 } }, { session });
+      }
+    }
+
+    // Add to new room
+    const newRoom = await Room.findById(newRoomId).session(session);
+    if (!newRoom) { await session.abortTransaction(); return res.status(404).json({ success: false, message: 'New room not found' }); }
+    if (newRoom.occupants.length >= newRoom.capacity) { await session.abortTransaction(); return res.status(400).json({ success: false, message: 'New room is full' }); }
+
+    newRoom.occupants.push(new mongoose.Types.ObjectId(studentId));
+    if (newRoom.occupants.length >= newRoom.capacity) newRoom.status = 'OCCUPIED';
+    await newRoom.save({ session });
+
+    await User.findByIdAndUpdate(studentId, {
+      'studentProfile.roomId': newRoom._id,
+      'studentProfile.hostelId': newRoom.hostelId,
+    }, { session });
+    await Hostel.findByIdAndUpdate(newRoom.hostelId, { $inc: { occupiedBeds: 1 } }, { session });
+
+    await session.commitTransaction();
+
+    // Socket notification
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user_${studentId}`).emit('room:allocated', { room: newRoom });
+      io.to(`hostel_${newRoom.hostelId}`).emit('room:updated', { room: newRoom });
+    }
+
+    res.status(200).json({ success: true, message: `Room reassigned to ${newRoom.roomNumber}`, data: { room: newRoom } });
+  } catch (e) { await session.abortTransaction(); res.status(500).json({ success: false, message: 'Reassignment failed', error: e.message }); }
+  finally { session.endSession(); }
+};

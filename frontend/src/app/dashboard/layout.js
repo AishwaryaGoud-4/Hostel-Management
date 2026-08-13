@@ -36,11 +36,12 @@ const roleMenus = {
     { href: '/dashboard/admin/analytics',  icon: HiOutlineChartBarSquare,      label: 'AI Analytics',    badge: 'AI'  },
   ],
   WARDEN: [
-    { href: '/dashboard/warden',               icon: HiOutlineHome,                label: 'Dashboard',   badge: null },
-    { href: '/dashboard/warden/rooms',         icon: HiOutlineSquares2X2,          label: 'Rooms',       badge: null },
-    { href: '/dashboard/warden/attendance',    icon: HiOutlineCalendarDays,        label: 'Attendance',  badge: null },
-    { href: '/dashboard/warden/complaints',    icon: HiOutlineExclamationTriangle, label: 'Complaints',  badge: null },
-    { href: '/dashboard/warden/gatepasses',    icon: HiOutlineDocumentText,        label: 'Gate Passes', badge: null },
+    { href: '/dashboard/warden',               icon: HiOutlineHome,                label: 'Dashboard',        badge: null },
+    { href: '/dashboard/warden/rooms',         icon: HiOutlineSquares2X2,          label: 'Rooms',            badge: null },
+    { href: '/dashboard/warden/allocation',    icon: HiOutlineClipboardDocumentList, label: 'Room Allocation', badge: null },
+    { href: '/dashboard/warden/attendance',    icon: HiOutlineCalendarDays,        label: 'Attendance',       badge: null },
+    { href: '/dashboard/warden/complaints',    icon: HiOutlineExclamationTriangle, label: 'Complaints',       badge: null },
+    { href: '/dashboard/warden/gatepasses',    icon: HiOutlineDocumentText,        label: 'Gate Passes',      badge: null },
   ],
   STUDENT: [
     { href: '/dashboard/student',              icon: HiOutlineHome,                label: 'Dashboard',   badge: null },

@@ -75,7 +75,7 @@ export default function StudentDashboard() {
   const todayInfo = TODAY_STATUS_LABELS[attendance.todayStatus];
 
   const quickStats = [
-    { icon: FiGrid, label: 'My Room', value: user?.studentProfile?.roomId ? 'Assigned' : 'Not Assigned', color: T.primary },
+    { icon: FiGrid, label: 'My Room', value: user?.studentProfile?.roomId?.roomNumber || user?.studentProfile?.roomId ? (typeof user.studentProfile.roomId === 'object' ? `Room ${user.studentProfile.roomId.roomNumber}` : 'Assigned') : 'Not Assigned', color: user?.studentProfile?.roomId ? T.primary : T.textMuted },
     { icon: FiCalendar, label: 'Attendance', value: `${attendance.percentage}%`, color: attendance.percentage >= 75 ? T.success : T.danger },
     { icon: FiAlertCircle, label: 'Open Complaints', value: complaints.filter(c => c.status === 'OPEN').length, color: T.warning },
     { icon: FiDollarSign, label: 'Fees Due', value: `₹${(fees.totalDue || 0).toLocaleString()}`, color: T.danger },

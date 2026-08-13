@@ -17,5 +17,9 @@ router.put('/rooms/:id', requireWarden, hostel.updateRoom);
 router.post('/rooms/allocate', requireWarden, hostel.allocateRoom);
 router.post('/rooms/deallocate', requireWarden, hostel.deallocateRoom);
 router.post('/rooms/auto-allocate', requireAdmin, hostel.autoAllocateRoom);
+router.post('/rooms/reassign', requireWarden, hostel.reassignRoom);
+
+// Student queries for room allocation
+router.get('/students/unassigned', requireWarden, hostel.getUnassignedStudents);
 
 module.exports = router;
