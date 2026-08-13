@@ -10,6 +10,10 @@ module.exports = {
     accessExpiry: process.env.JWT_ACCESS_EXPIRY || '15m',
     refreshExpiry: process.env.JWT_REFRESH_EXPIRY || '7d',
   },
-  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  corsOrigin: (() => {
+    const origins = process.env.CORS_ORIGIN || 'http://localhost:3000,https://hostel-management-seven-wheat.vercel.app';
+    const list = origins.split(',').map(o => o.trim()).filter(Boolean);
+    return list.length === 1 ? list[0] : list;
+  })(),
   aiServiceUrl: process.env.AI_SERVICE_URL || 'http://localhost:8000',
 };
