@@ -50,8 +50,12 @@ exports.register = async (req, res) => {
     // Emit real-time event for new student/user
     const io = req.app.get('io');
     if (io) {
-      if (user.role === 'STUDENT' && user.studentProfile?.hostelId) {
-        io.to(`hostel_${user.studentProfile.hostelId}`).emit('student:added', user.toJSON());
+      // Notify all wardens so Room Allocation page auto-refreshes
+      if (user.role === 'STUDENT') {
+        io.to('role_WARDEN').emit('student:registered', user.toJSON());
+        if (user.studentProfile?.hostelId) {
+          io.to(`hostel_${user.studentProfile.hostelId}`).emit('student:added', user.toJSON());
+        }
       }
       io.to('role_SUPER_ADMIN').emit('user:added', user.toJSON());
     }

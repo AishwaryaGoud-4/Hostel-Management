@@ -15,6 +15,7 @@ import {
 } from 'react-icons/hi2';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { useSocket } from '@/store/socketProvider';
 
 const T = {
   primary: '#e2725b', accent: '#2a9d8f', accentLight: '#5fc9ba',
@@ -25,6 +26,7 @@ const T = {
 const BLOCKS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
 
 export default function RoomAllocationPage() {
+  const { socket } = useSocket();
   const [unassigned, setUnassigned] = useState([]);
   const [assignedStudents, setAssignedStudents] = useState([]);
   const [hostels, setHostels] = useState([]);
@@ -69,6 +71,22 @@ export default function RoomAllocationPage() {
   useEffect(() => { loadHostels(); }, []);
   useEffect(() => { loadUnassigned(); loadAssigned(); }, [search, loadUnassigned, loadAssigned]);
   useEffect(() => { if (selectedHostel) loadRooms(selectedHostel); }, [selectedHostel, loadRooms]);
+
+  // Real-time: auto-refresh when a new student registers
+  useEffect(() => {
+    if (!socket) return;
+    const onStudentRegistered = (newStudent) => {
+      toast(`New student registered: ${newStudent.firstName} ${newStudent.lastName}`, { icon: '👤', duration: 4000 });
+      loadUnassigned();
+    };
+    const onStudentAdded = () => { loadUnassigned(); };
+    socket.on('student:registered', onStudentRegistered);
+    socket.on('student:added', onStudentAdded);
+    return () => {
+      socket.off('student:registered', onStudentRegistered);
+      socket.off('student:added', onStudentAdded);
+    };
+  }, [socket, loadUnassigned]);
 
   const refreshAll = () => { loadUnassigned(); loadAssigned(); if (selectedHostel) loadRooms(selectedHostel); };
 
