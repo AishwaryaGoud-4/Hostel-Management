@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   HiOutlineUsers,
@@ -11,6 +11,7 @@ import {
   HiOutlineHome,
   HiOutlineFunnel,
   HiOutlineUserPlus,
+  HiOutlineArrowsRightLeft,
 } from 'react-icons/hi2';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
@@ -21,25 +22,34 @@ const T = {
   textMuted: '#a89f92', bgSurface: 'rgba(23,20,15,0.6)', border: '#34302a',
 };
 
+const BLOCKS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+
 export default function RoomAllocationPage() {
   const [unassigned, setUnassigned] = useState([]);
+  const [assignedStudents, setAssignedStudents] = useState([]);
   const [hostels, setHostels] = useState([]);
   const [rooms, setRooms] = useState([]);
   const [selectedHostel, setSelectedHostel] = useState('');
   const [search, setSearch] = useState('');
+  const [blockFilter, setBlockFilter] = useState('ALL');
   const [loading, setLoading] = useState(true);
   const [allocating, setAllocating] = useState(false);
+  const [tab, setTab] = useState('unassigned'); // 'unassigned' | 'assigned' | 'rooms'
 
   // Modal state
   const [modal, setModal] = useState(null); // { student, mode: 'assign' | 'reassign' }
   const [selectedRoom, setSelectedRoom] = useState('');
 
-  const loadUnassigned = async () => {
-    setLoading(true);
+  const loadUnassigned = useCallback(async () => {
     const res = await api.get(`/hostels/students/unassigned${search ? `?search=${encodeURIComponent(search)}` : ''}`).catch(() => ({ data: { students: [] } }));
     setUnassigned(res.data?.students || []);
-    setLoading(false);
-  };
+  }, [search]);
+
+  const loadAssigned = useCallback(async () => {
+    const res = await api.get('/auth/users?role=STUDENT&limit=200').catch(() => ({ data: { users: [] } }));
+    const all = res.data?.users || [];
+    setAssignedStudents(all.filter(s => s.studentProfile?.roomId));
+  }, []);
 
   const loadHostels = async () => {
     const res = await api.get('/hostels').catch(() => ({ data: { hostels: [] } }));
@@ -48,18 +58,27 @@ export default function RoomAllocationPage() {
     if (h.length > 0 && !selectedHostel) setSelectedHostel(h[0]._id);
   };
 
-  const loadRooms = async (hostelId) => {
+  const loadRooms = useCallback(async (hostelId) => {
     if (!hostelId) return;
-    const res = await api.get(`/hostels/${hostelId}/rooms`).catch(() => ({ data: { rooms: [] } }));
+    setLoading(true);
+    const res = await api.get(`/hostels/${hostelId}/rooms?limit=1000`).catch(() => ({ data: { rooms: [] } }));
     setRooms(res.data?.rooms || []);
-  };
+    setLoading(false);
+  }, []);
 
   useEffect(() => { loadHostels(); }, []);
-  useEffect(() => { loadUnassigned(); }, [search]);
-  useEffect(() => { if (selectedHostel) loadRooms(selectedHostel); }, [selectedHostel]);
+  useEffect(() => { loadUnassigned(); loadAssigned(); }, [search, loadUnassigned, loadAssigned]);
+  useEffect(() => { if (selectedHostel) loadRooms(selectedHostel); }, [selectedHostel, loadRooms]);
+
+  const refreshAll = () => { loadUnassigned(); loadAssigned(); if (selectedHostel) loadRooms(selectedHostel); };
 
   const openAssignModal = (student) => {
     setModal({ student, mode: 'assign' });
+    setSelectedRoom('');
+  };
+
+  const openReassignModal = (student) => {
+    setModal({ student, mode: 'reassign' });
     setSelectedRoom('');
   };
 
@@ -75,14 +94,27 @@ export default function RoomAllocationPage() {
       if (res.success) {
         toast.success(res.message || 'Room allocated ✓');
         setModal(null);
-        loadUnassigned();
-        loadRooms(selectedHostel);
+        refreshAll();
       } else toast.error(res.message || 'Allocation failed');
     } catch { toast.error('Server error'); }
     setAllocating(false);
   };
 
+  const handleDeallocate = async (student) => {
+    if (!student.studentProfile?.roomId) return;
+    const roomId = typeof student.studentProfile.roomId === 'object' ? student.studentProfile.roomId._id : student.studentProfile.roomId;
+    try {
+      const res = await api.post('/hostels/rooms/deallocate', { roomId, studentId: student._id });
+      if (res.success) { toast.success('Room removed ✓'); refreshAll(); }
+      else toast.error(res.message || 'Failed');
+    } catch { toast.error('Server error'); }
+  };
+
+  // Filter rooms by block
   const availableRooms = rooms.filter(r => r.occupants?.length < r.capacity && r.status !== 'MAINTENANCE');
+  const filteredRooms = blockFilter === 'ALL' ? availableRooms : availableRooms.filter(r => r.roomNumber?.startsWith(blockFilter));
+  const totalAvailable = availableRooms.length;
+  const totalOccupied = rooms.length - totalAvailable;
 
   const cardMotion = (i) => ({
     initial: { opacity: 0, y: 16 }, animate: { opacity: 1, y: 0 },
@@ -96,16 +128,17 @@ export default function RoomAllocationPage() {
           <span className="gradient-text">Room Allocation</span>
         </h1>
         <p style={{ color: T.textMuted, marginTop: 6, fontSize: 14 }}>
-          Assign and manage room allocations for students
+          Assign and manage room allocations for students (Rooms A1–J100)
         </p>
       </div>
 
       {/* Stats row */}
-      <div className="responsive-grid-3" style={{ marginBottom: 24 }}>
+      <div className="responsive-grid-4" style={{ marginBottom: 24 }}>
         {[
           { icon: HiOutlineUsers, label: 'Unassigned Students', value: unassigned.length, color: T.warning },
-          { icon: HiOutlineSquares2X2, label: 'Available Rooms', value: availableRooms.length, color: T.success },
-          { icon: HiOutlineHome, label: 'Total Rooms', value: rooms.length, color: T.accent },
+          { icon: HiOutlineUserPlus, label: 'Assigned Students', value: assignedStudents.length, color: T.accent },
+          { icon: HiOutlineSquares2X2, label: 'Available Rooms', value: totalAvailable, color: T.success },
+          { icon: HiOutlineHome, label: 'Occupied Rooms', value: totalOccupied, color: T.primary },
         ].map((s, i) => (
           <motion.div key={i} {...cardMotion(i)}
             className="glass card-hover" style={{ padding: 20, borderRadius: 14 }}>
@@ -122,120 +155,212 @@ export default function RoomAllocationPage() {
         ))}
       </div>
 
-      {/* Hostel filter + search */}
+      {/* Toolbar: search + hostel filter + refresh */}
       <div className="glass" style={{ padding: '10px 14px', borderRadius: 12, marginBottom: 20, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <HiOutlineFunnel size={16} style={{ color: T.textMuted }} />
         <select value={selectedHostel} onChange={e => setSelectedHostel(e.target.value)}
-          className="input-field" style={{ width: 'auto', minWidth: 180 }}>
+          className="input-field" style={{ width: 'auto', minWidth: 160 }}>
           {hostels.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
         </select>
-        <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: 180 }}>
           <HiOutlineMagnifyingGlass size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: T.textMuted, pointerEvents: 'none' }} />
           <input value={search} onChange={e => setSearch(e.target.value)}
             className="input-field" style={{ paddingLeft: 34, width: '100%' }}
-            placeholder="Search students by name, email, roll no…" />
+            placeholder="Search students…" />
         </div>
-        <button onClick={() => { loadUnassigned(); loadRooms(selectedHostel); }} className="btn-secondary"
+        <button onClick={refreshAll} className="btn-secondary"
           style={{ padding: '8px 14px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
           <HiOutlineArrowPath size={14} /> Refresh
         </button>
       </div>
 
-      {/* Unassigned students list */}
-      <motion.div {...cardMotion(0)} className="glass" style={{ padding: 24, borderRadius: 16, marginBottom: 24 }}>
-        <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div className="icon-box icon-box-sm" style={{ background: `${T.warning}18` }}>
-            <HiOutlineUsers size={14} color={T.warning} />
-          </div>
-          Unassigned Students
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: T.textMuted }}>{unassigned.length} student{unassigned.length !== 1 ? 's' : ''}</span>
-        </h3>
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
+        {[
+          { key: 'unassigned', label: `Unassigned (${unassigned.length})` },
+          { key: 'assigned', label: `Assigned (${assignedStudents.length})` },
+          { key: 'rooms', label: `Rooms (${rooms.length})` },
+        ].map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={tab === t.key ? 'btn-primary' : 'btn-secondary'}
+            style={{ padding: '8px 18px', fontSize: 13, borderRadius: 10 }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-        {loading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: 56, borderRadius: 10 }} />)}
-          </div>
-        ) : unassigned.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 40 }}>
-            <HiOutlineCheckCircle size={40} color={T.success} style={{ margin: '0 auto 12px', display: 'block' }} />
-            <p style={{ fontWeight: 600, fontSize: 15 }}>All students have rooms assigned!</p>
-            <p style={{ fontSize: 13, color: T.textMuted, marginTop: 6 }}>No pending room allocations.</p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {unassigned.map((s, i) => (
-              <motion.div key={s._id} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.03 }}
-                style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '12px 16px', borderRadius: 10, background: T.bgSurface,
-                  borderLeft: `3px solid ${T.warning}`,
-                }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{
-                    width: 36, height: 36, borderRadius: 10,
-                    background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontWeight: 700, fontSize: 13, color: 'white', flexShrink: 0,
+      {/* ── TAB: Unassigned Students ── */}
+      {tab === 'unassigned' && (
+        <motion.div {...cardMotion(0)} className="glass" style={{ padding: 24, borderRadius: 16 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="icon-box icon-box-sm" style={{ background: `${T.warning}18` }}>
+              <HiOutlineUsers size={14} color={T.warning} />
+            </div>
+            Students Without Room
+          </h3>
+          {loading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: 56, borderRadius: 10 }} />)}
+            </div>
+          ) : unassigned.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40 }}>
+              <HiOutlineCheckCircle size={40} color={T.success} style={{ margin: '0 auto 12px', display: 'block' }} />
+              <p style={{ fontWeight: 600, fontSize: 15 }}>All students have rooms assigned!</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {unassigned.map((s, i) => (
+                <motion.div key={s._id} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.03 }}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '12px 16px', borderRadius: 10, background: T.bgSurface,
+                    borderLeft: `3px solid ${T.warning}`,
                   }}>
-                    {s.firstName?.[0]}{s.lastName?.[0]}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{
+                      width: 36, height: 36, borderRadius: 10,
+                      background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontWeight: 700, fontSize: 13, color: 'white', flexShrink: 0,
+                    }}>
+                      {s.firstName?.[0]}{s.lastName?.[0]}
+                    </div>
+                    <div>
+                      <p style={{ fontWeight: 600, fontSize: 14 }}>{s.firstName} {s.lastName}</p>
+                      <p style={{ fontSize: 11, color: T.textMuted }}>
+                        {s.studentProfile?.rollNumber || s.email}
+                        {s.studentProfile?.course && ` · ${s.studentProfile.course}`}
+                        {s.studentProfile?.year && ` · Year ${s.studentProfile.year}`}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p style={{ fontWeight: 600, fontSize: 14 }}>{s.firstName} {s.lastName}</p>
-                    <p style={{ fontSize: 11, color: T.textMuted }}>
-                      {s.studentProfile?.rollNumber || s.email}
-                      {s.studentProfile?.course && ` · ${s.studentProfile.course}`}
-                      {s.studentProfile?.year && ` · Year ${s.studentProfile.year}`}
-                    </p>
-                  </div>
-                </div>
-                <button onClick={() => openAssignModal(s)} className="btn-primary"
-                  style={{ padding: '8px 16px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
-                  <HiOutlineUserPlus size={14} /> Assign Room
-                </button>
-              </motion.div>
-            ))}
-          </div>
-        )}
-      </motion.div>
+                  <button onClick={() => openAssignModal(s)} className="btn-primary"
+                    style={{ padding: '8px 16px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                    <HiOutlineUserPlus size={14} /> Assign Room
+                  </button>
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </motion.div>
+      )}
 
-      {/* Available Rooms overview */}
-      <motion.div {...cardMotion(1)} className="glass" style={{ padding: 24, borderRadius: 16 }}>
-        <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div className="icon-box icon-box-sm" style={{ background: `${T.success}18` }}>
-            <HiOutlineSquares2X2 size={14} color={T.success} />
-          </div>
-          Available Rooms
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: T.textMuted }}>
-            {availableRooms.length} available in {hostels.find(h => h._id === selectedHostel)?.name || '—'}
-          </span>
-        </h3>
-        {availableRooms.length === 0 ? (
-          <p style={{ textAlign: 'center', color: T.textMuted, fontSize: 14, padding: 20 }}>No available rooms in the selected hostel.</p>
-        ) : (
-          <div className="responsive-grid-4">
-            {availableRooms.map((r, i) => (
-              <div key={r._id} style={{
-                padding: 14, borderRadius: 10, background: T.bgSurface,
-                borderLeft: `3px solid ${T.success}`,
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontWeight: 700, fontSize: 14 }}>Room {r.roomNumber}</span>
-                  <span style={{ fontSize: 11, color: T.textMuted }}>Floor {r.floor}</span>
-                </div>
-                <p style={{ fontSize: 11, color: T.textMuted }}>{r.type} · {r.occupants?.length || 0}/{r.capacity} occupied</p>
-                <div style={{ marginTop: 8, display: 'flex', gap: 4 }}>
-                  <span style={{ padding: '2px 8px', borderRadius: 6, fontSize: 10, background: `${T.success}20`, color: T.success, fontWeight: 600 }}>
-                    {r.capacity - (r.occupants?.length || 0)} bed{r.capacity - (r.occupants?.length || 0) !== 1 ? 's' : ''} free
-                  </span>
-                  {r.isAirConditioned && <span style={{ padding: '2px 8px', borderRadius: 6, fontSize: 10, background: `${T.accent}20`, color: T.accentLight, fontWeight: 600 }}>AC</span>}
-                </div>
+      {/* ── TAB: Assigned Students ── */}
+      {tab === 'assigned' && (
+        <motion.div {...cardMotion(0)} className="glass" style={{ padding: 24, borderRadius: 16 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="icon-box icon-box-sm" style={{ background: `${T.accent}18` }}>
+              <HiOutlineUsers size={14} color={T.accent} />
+            </div>
+            Students With Rooms
+          </h3>
+          {assignedStudents.length === 0 ? (
+            <p style={{ textAlign: 'center', color: T.textMuted, padding: 30, fontSize: 14 }}>No students have rooms assigned yet.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {assignedStudents.map((s, i) => {
+                const roomInfo = typeof s.studentProfile?.roomId === 'object' ? s.studentProfile.roomId : null;
+                const roomLabel = roomInfo?.roomNumber || 'Assigned';
+                return (
+                  <div key={s._id} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '12px 16px', borderRadius: 10, background: T.bgSurface,
+                    borderLeft: `3px solid ${T.accent}`,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{
+                        width: 36, height: 36, borderRadius: 10,
+                        background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontWeight: 700, fontSize: 13, color: 'white', flexShrink: 0,
+                      }}>
+                        {s.firstName?.[0]}{s.lastName?.[0]}
+                      </div>
+                      <div>
+                        <p style={{ fontWeight: 600, fontSize: 14 }}>{s.firstName} {s.lastName}</p>
+                        <p style={{ fontSize: 11, color: T.textMuted }}>
+                          {s.studentProfile?.rollNumber || s.email}
+                        </p>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ padding: '4px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: `${T.accent}20`, color: T.accentLight }}>
+                        Room {roomLabel}
+                      </span>
+                      <button onClick={() => openReassignModal(s)} className="btn-secondary"
+                        style={{ padding: '6px 12px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <HiOutlineArrowsRightLeft size={12} /> Reassign
+                      </button>
+                      <button onClick={() => handleDeallocate(s)}
+                        style={{ padding: '6px 12px', fontSize: 11, fontWeight: 600, borderRadius: 8, cursor: 'pointer',
+                          background: 'rgba(225,85,84,0.15)', border: '1px solid rgba(225,85,84,0.3)', color: T.danger }}>
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {/* ── TAB: Rooms Overview ── */}
+      {tab === 'rooms' && (
+        <motion.div {...cardMotion(0)} className="glass" style={{ padding: 24, borderRadius: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div className="icon-box icon-box-sm" style={{ background: `${T.success}18` }}>
+                <HiOutlineSquares2X2 size={14} color={T.success} />
               </div>
-            ))}
+              Room Status — Block Filter
+            </h3>
+            {/* Block filter buttons */}
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              <button onClick={() => setBlockFilter('ALL')}
+                className={blockFilter === 'ALL' ? 'btn-primary' : 'btn-secondary'}
+                style={{ padding: '4px 10px', fontSize: 11, borderRadius: 8 }}>ALL</button>
+              {BLOCKS.map(b => (
+                <button key={b} onClick={() => setBlockFilter(b)}
+                  className={blockFilter === b ? 'btn-primary' : 'btn-secondary'}
+                  style={{ padding: '4px 10px', fontSize: 11, borderRadius: 8 }}>{b}</button>
+              ))}
+            </div>
           </div>
-        )}
-      </motion.div>
 
-      {/* Allocation Modal */}
+          {rooms.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 40 }}>
+              <HiOutlineSquares2X2 size={40} color={T.textMuted} style={{ margin: '0 auto 12px', display: 'block' }} />
+              <p style={{ fontWeight: 600, fontSize: 15, marginBottom: 8 }}>No rooms found</p>
+              <p style={{ fontSize: 13, color: T.textMuted }}>Ask your admin to seed rooms (A1–J100) from the admin panel.</p>
+            </div>
+          ) : (
+            <div>
+              <p style={{ fontSize: 12, color: T.textMuted, marginBottom: 12 }}>
+                Showing {filteredRooms.length} available room{filteredRooms.length !== 1 ? 's' : ''}
+                {blockFilter !== 'ALL' && ` in Block ${blockFilter}`}
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: 6 }}>
+                {filteredRooms.map(r => {
+                  const isOccupied = r.occupants?.length >= r.capacity;
+                  return (
+                    <div key={r._id} style={{
+                      padding: '8px 6px', borderRadius: 8, textAlign: 'center', fontSize: 13, fontWeight: 700,
+                      background: isOccupied ? 'rgba(226,114,91,0.15)' : 'rgba(42,157,143,0.15)',
+                      color: isOccupied ? T.primary : T.accentLight,
+                      border: `1px solid ${isOccupied ? 'rgba(226,114,91,0.25)' : 'rgba(42,157,143,0.25)'}`,
+                    }}>
+                      {r.roomNumber}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {/* ── Allocation Modal ── */}
       <AnimatePresence>
         {modal && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}
@@ -249,11 +374,11 @@ export default function RoomAllocationPage() {
                     {modal.mode === 'reassign' ? 'Reassign Room' : 'Assign Room'}
                   </h3>
                   <p style={{ fontSize: 13, color: T.textMuted, marginTop: 4 }}>
-                    For {modal.student.firstName} {modal.student.lastName}
+                    {modal.student.firstName} {modal.student.lastName}
                     {modal.student.studentProfile?.rollNumber && ` (${modal.student.studentProfile.rollNumber})`}
                   </p>
                 </div>
-                <button onClick={() => setModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.textMuted, fontSize: 20 }}>
+                <button onClick={() => setModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.textMuted }}>
                   <HiOutlineXMark size={22} />
                 </button>
               </div>
@@ -263,32 +388,48 @@ export default function RoomAllocationPage() {
                 <p style={{ fontSize: 13, color: T.textMuted }}>
                   {modal.student.email} · {modal.student.studentProfile?.course || '—'} · Year {modal.student.studentProfile?.year || '—'}
                 </p>
+                {modal.mode === 'reassign' && (
+                  <p style={{ fontSize: 12, color: T.warning, marginTop: 6 }}>
+                    Current: Room {typeof modal.student.studentProfile?.roomId === 'object' ? modal.student.studentProfile.roomId.roomNumber : 'N/A'}
+                  </p>
+                )}
               </div>
 
-              {/* Hostel selector for modal */}
+              {/* Block filter in modal */}
               <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, marginBottom: 6, display: 'block', letterSpacing: 0.4, textTransform: 'uppercase' }}>
-                  Hostel
+                  Filter by Block
                 </label>
-                <select value={selectedHostel} onChange={e => { setSelectedHostel(e.target.value); setSelectedRoom(''); }}
-                  className="input-field">
-                  {hostels.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
-                </select>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  <button onClick={() => setBlockFilter('ALL')}
+                    className={blockFilter === 'ALL' ? 'btn-primary' : 'btn-secondary'}
+                    style={{ padding: '4px 10px', fontSize: 11, borderRadius: 8 }}>ALL</button>
+                  {BLOCKS.map(b => {
+                    const count = availableRooms.filter(r => r.roomNumber?.startsWith(b)).length;
+                    return (
+                      <button key={b} onClick={() => setBlockFilter(b)}
+                        className={blockFilter === b ? 'btn-primary' : 'btn-secondary'}
+                        style={{ padding: '4px 10px', fontSize: 11, borderRadius: 8 }}>
+                        {b} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Room selector */}
               <div style={{ marginBottom: 20 }}>
                 <label style={{ fontSize: 11, fontWeight: 700, color: T.textMuted, marginBottom: 6, display: 'block', letterSpacing: 0.4, textTransform: 'uppercase' }}>
-                  Available Room
+                  Select Room
                 </label>
-                {availableRooms.length === 0 ? (
-                  <p style={{ fontSize: 13, color: T.danger, padding: 10 }}>No available rooms in this hostel.</p>
+                {filteredRooms.length === 0 ? (
+                  <p style={{ fontSize: 13, color: T.danger, padding: 10 }}>No available rooms{blockFilter !== 'ALL' ? ` in Block ${blockFilter}` : ''}.</p>
                 ) : (
                   <select value={selectedRoom} onChange={e => setSelectedRoom(e.target.value)} className="input-field">
                     <option value="">Select a room…</option>
-                    {availableRooms.map(r => (
+                    {filteredRooms.map(r => (
                       <option key={r._id} value={r._id}>
-                        Room {r.roomNumber} — Floor {r.floor} — {r.type} — {r.capacity - (r.occupants?.length || 0)} bed(s) free — ₹{r.monthlyRent?.toLocaleString()}/mo
+                        Room {r.roomNumber} — {r.type} — ₹{r.monthlyRent?.toLocaleString()}/mo
                       </option>
                     ))}
                   </select>

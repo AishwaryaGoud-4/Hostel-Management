@@ -22,4 +22,7 @@ router.post('/rooms/reassign', requireWarden, hostel.reassignRoom);
 // Student queries for room allocation
 router.get('/students/unassigned', requireWarden, hostel.getUnassignedStudents);
 
+// Seed rooms (admin only)
+router.post('/rooms/seed', requireAdmin, hostel.seedRooms);
+
 module.exports = router;

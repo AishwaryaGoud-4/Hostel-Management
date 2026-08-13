@@ -328,3 +328,56 @@ exports.reassignRoom = async (req, res) => {
   } catch (e) { await session.abortTransaction(); res.status(500).json({ success: false, message: 'Reassignment failed', error: e.message }); }
   finally { session.endSession(); }
 };
+
+// ===== SEED ROOMS (A1-J100) & RESET STUDENT ASSIGNMENTS =====
+exports.seedRooms = async (req, res) => {
+  try {
+    const { hostelId } = req.body;
+    const hostel = await Hostel.findById(hostelId);
+    if (!hostel) return res.status(404).json({ success: false, message: 'Hostel not found' });
+
+    // 1. Reset all student room assignments
+    await User.updateMany(
+      { role: 'STUDENT' },
+      { $set: { 'studentProfile.roomId': null, 'studentProfile.hostelId': null } }
+    );
+
+    // 2. Remove existing rooms for this hostel (clean slate)
+    await Room.deleteMany({ hostelId });
+
+    // 3. Create 1000 rooms: A1-A100 through J1-J100
+    const blocks = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+    const rooms = [];
+    for (let bi = 0; bi < blocks.length; bi++) {
+      for (let num = 1; num <= 100; num++) {
+        rooms.push({
+          hostelId,
+          roomNumber: `${blocks[bi]}${num}`,
+          floor: bi, // Block A = floor 0, B = floor 1, etc.
+          type: 'SINGLE',
+          status: 'AVAILABLE',
+          capacity: 1,
+          occupants: [],
+          amenities: [],
+          monthlyRent: 5000,
+          isAirConditioned: false,
+          hasAttachedBathroom: false,
+        });
+      }
+    }
+    await Room.insertMany(rooms);
+
+    // 4. Update hostel stats
+    await Hostel.findByIdAndUpdate(hostelId, {
+      totalRooms: 1000,
+      totalBeds: 1000,
+      occupiedBeds: 0,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Seeded 1000 rooms (A1-J100) and reset all student room assignments`,
+      data: { totalRooms: 1000, blocks: blocks.length },
+    });
+  } catch (e) { res.status(500).json({ success: false, message: 'Seed failed', error: e.message }); }
+};
