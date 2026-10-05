@@ -102,7 +102,7 @@ const seed = async () => {
     const courseCodes = ['CSE', 'ECE', 'EEE', 'BSC', 'BBA'];
     const courseRooms = [];
     for (const c of courseCodes) {
-      for (let n = 1; n <= 3; n++) {
+      for (let n = 1; n <= 4; n++) {
         courseRooms.push({
           hostelId: hostel1._id,
           course: c,

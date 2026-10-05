@@ -29,8 +29,10 @@ async function allocateCourseRoom(course, studentId, session) {
     $expr: { $lt: [{ $size: '$occupants' }, '$capacity'] },
   }).session(session);
 
+  const noRoomsMessage = `No rooms are currently available for ${course}. Please contact the hostel administrator.`;
+
   if (candidates.length === 0) {
-    return { ok: false, message: `No rooms available for ${course}.` };
+    return { ok: false, message: noRoomsMessage };
   }
 
   for (const candidate of shuffle(candidates)) {
@@ -67,7 +69,7 @@ async function allocateCourseRoom(course, studentId, session) {
     return { ok: true, room: updated };
   }
 
-  return { ok: false, message: `No rooms available for ${course}.` };
+  return { ok: false, message: noRoomsMessage };
 }
 
 module.exports = { allocateCourseRoom };
