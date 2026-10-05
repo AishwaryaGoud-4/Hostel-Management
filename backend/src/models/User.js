@@ -21,7 +21,7 @@ const userSchema = new mongoose.Schema(
     passwordResetExpiry: { type: Date, select: false },
     studentProfile: {
       rollNumber: { type: String, sparse: true },
-      course: String,
+      course: { type: String, enum: ['CSE', 'ECE', 'EEE', 'BSC', 'BBA', null], default: null },
       year: { type: Number, min: 1, max: 6 },
       department: String,
       hostelId: { type: mongoose.Schema.Types.ObjectId, ref: 'Hostel' },

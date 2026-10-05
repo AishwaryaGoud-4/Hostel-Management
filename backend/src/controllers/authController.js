@@ -1,8 +1,11 @@
+const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../models/User');
 const config = require('../config');
+const { isValidCourse } = require('../constants/courses');
+const { allocateCourseRoom } = require('../services/courseRoomAllocation');
 
 const generateTokens = (payload) => {
   const accessToken = jwt.sign(payload, config.jwt.accessSecret, { expiresIn: config.jwt.accessExpiry });
@@ -27,19 +30,54 @@ const setTokenCookies = (res, accessToken, refreshToken) => {
 };
 
 exports.register = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const { firstName, lastName, email, password, phone, role, studentProfile, staffProfile } = req.body;
+    const effectiveRole = role || 'STUDENT';
+    const isStudent = effectiveRole === 'STUDENT';
 
     const existing = await User.findOne({ email });
-    if (existing) return res.status(409).json({ success: false, message: 'Email already registered' });
+    if (existing) {
+      await session.abortTransaction();
+      return res.status(409).json({ success: false, message: 'Email already registered' });
+    }
+
+    if (isStudent) {
+      const course = studentProfile?.course;
+      if (!isValidCourse(course)) {
+        await session.abortTransaction();
+        return res.status(400).json({
+          success: false,
+          message: 'Course is required. Choose CSE, ECE, EEE, BSC, or BBA.',
+        });
+      }
+    }
 
     const hashedPassword = await bcrypt.hash(password, 12);
-    const user = await User.create({
-      firstName, lastName, email, password: hashedPassword, phone,
-      role: role || 'STUDENT',
-      studentProfile: role === 'STUDENT' || !role ? studentProfile : undefined,
-      staffProfile: ['STAFF', 'WARDEN'].includes(role) ? staffProfile : undefined,
-    });
+    const [user] = await User.create(
+      [{
+        firstName,
+        lastName,
+        email,
+        password: hashedPassword,
+        phone,
+        role: effectiveRole,
+        studentProfile: isStudent ? studentProfile : undefined,
+        staffProfile: ['STAFF', 'WARDEN'].includes(effectiveRole) ? staffProfile : undefined,
+      }],
+      { session }
+    );
+
+    if (isStudent) {
+      const allocation = await allocateCourseRoom(studentProfile.course, user._id, session);
+      if (!allocation.ok) {
+        await session.abortTransaction();
+        return res.status(400).json({ success: false, message: allocation.message });
+      }
+    }
+
+    await session.commitTransaction();
 
     const payload = { userId: user._id.toString(), role: user.role, email: user.email };
     const { accessToken, refreshToken } = generateTokens(payload);
@@ -47,22 +85,33 @@ exports.register = async (req, res) => {
     await User.findByIdAndUpdate(user._id, { refreshToken });
     setTokenCookies(res, accessToken, refreshToken);
 
-    // Emit real-time event for new student/user
+    const populatedUser = await User.findById(user._id)
+      .populate('studentProfile.hostelId', 'name code')
+      .populate('studentProfile.roomId', 'roomNumber floor type course capacity');
+
     const io = req.app.get('io');
     if (io) {
-      // Notify all wardens so Room Allocation page auto-refreshes
+      const userJson = populatedUser.toJSON();
       if (user.role === 'STUDENT') {
-        io.to('role_WARDEN').emit('student:registered', user.toJSON());
-        if (user.studentProfile?.hostelId) {
-          io.to(`hostel_${user.studentProfile.hostelId}`).emit('student:added', user.toJSON());
+        io.to('role_WARDEN').emit('student:registered', userJson);
+        if (userJson.studentProfile?.hostelId) {
+          const hid = userJson.studentProfile.hostelId._id || userJson.studentProfile.hostelId;
+          io.to(`hostel_${hid}`).emit('student:added', userJson);
         }
       }
-      io.to('role_SUPER_ADMIN').emit('user:added', user.toJSON());
+      io.to('role_SUPER_ADMIN').emit('user:added', userJson);
     }
 
-    res.status(201).json({ success: true, message: 'Registration successful', data: { user, accessToken } });
+    res.status(201).json({
+      success: true,
+      message: 'Registration successful',
+      data: { user: populatedUser, accessToken },
+    });
   } catch (error) {
+    await session.abortTransaction();
     res.status(500).json({ success: false, message: 'Registration failed', error: error.message });
+  } finally {
+    session.endSession();
   }
 };
 
