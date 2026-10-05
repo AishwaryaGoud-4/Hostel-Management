@@ -175,7 +175,7 @@ exports.getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user.userId)
       .populate('studentProfile.hostelId', 'name code')
-      .populate('studentProfile.roomId', 'roomNumber floor type');
+      .populate('studentProfile.roomId', 'roomNumber floor type course capacity');
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
     res.status(200).json({ success: true, message: 'Profile retrieved', data: { user } });
   } catch (error) {

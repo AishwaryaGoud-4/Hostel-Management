@@ -30,7 +30,7 @@ const roleMenus = {
   SUPER_ADMIN: [
     { href: '/dashboard/admin',            icon: HiOutlineHome,                label: 'Dashboard',       badge: null },
     { href: '/dashboard/admin/hostels',    icon: HiOutlineBuildingOffice2,     label: 'Hostels & Rooms', badge: null },
-    { href: '/dashboard/admin/rooms',      icon: HiOutlineSquares2X2,          label: 'Course Rooms',    badge: null },
+    { href: '/dashboard/admin/rooms',      icon: HiOutlineSquares2X2,          label: 'Room Management',    badge: null },
     { href: '/dashboard/admin/users',      icon: HiOutlineUsers,               label: 'Users',           badge: null },
     { href: '/dashboard/admin/complaints', icon: HiOutlineExclamationTriangle, label: 'Complaints',      badge: null },
     { href: '/dashboard/admin/fees',       icon: HiOutlineBanknotes,           label: 'Fees',            badge: null },
