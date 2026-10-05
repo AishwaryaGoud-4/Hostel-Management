@@ -39,9 +39,9 @@ function OccupancyBar({ occupied, capacity }) {
 function RoomCardSkeleton() {
   return (
     <div className="glass" style={{ padding: 20, borderRadius: 16, minHeight: 200 }}>
-      <div className="skeleton-shimmer" style={{ height: 20, width: '60%', borderRadius: 8, marginBottom: 12 }} />
-      <div className="skeleton-shimmer" style={{ height: 14, width: '30%', borderRadius: 6, marginBottom: 24 }} />
-      <div className="skeleton-shimmer" style={{ height: 8, width: '100%', borderRadius: 4 }} />
+      <div className="skeleton" style={{ height: 20, width: '60%', marginBottom: 12 }} />
+      <div className="skeleton" style={{ height: 14, width: '30%', marginBottom: 24 }} />
+      <div className="skeleton" style={{ height: 8, width: '100%' }} />
     </div>
   );
 }
@@ -269,17 +269,6 @@ export default function AdminCourseRoomsPage() {
         )}
       </AnimatePresence>
 
-      <style jsx global>{`
-        .skeleton-shimmer {
-          background: linear-gradient(90deg, var(--color-border) 25%, rgba(255,255,255,0.06) 50%, var(--color-border) 75%);
-          background-size: 200% 100%;
-          animation: shimmer 1.2s ease-in-out infinite;
-        }
-        @keyframes shimmer {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
-      `}</style>
     </div>
   );
 }

@@ -359,6 +359,16 @@ select.input-field option { background: #211d18; color: #f5ece3; }
   100% { background-position: -200% 0; }
 }
 
+.register-spinner {
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: register-spin 0.9s linear infinite;
+}
+@keyframes register-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ═══════════════════════════════════════════════════════════════
    13. SIDEBAR NAV LINKS
 ═══════════════════════════════════════════════════════════════ */
