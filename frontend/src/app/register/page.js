@@ -239,13 +239,7 @@ export default function RegisterPage() {
               exit={{ opacity: 0 }}
               style={{ padding: '40px 20px', textAlign: 'center' }}
             >
-              <div className="register-spinner" style={{
-                width: 48, height: 48, margin: '0 auto 24px',
-                border: '3px solid var(--color-border)',
-                borderTopColor: 'var(--color-primary)',
-                borderRadius: '50%',
-                animation: 'spin 0.9s linear infinite',
-              }} />
+              <div className="register-spinner" style={{ width: 48, height: 48, margin: '0 auto 24px' }} />
               <AnimatePresence mode="wait">
                 <motion.p
                   key={loadingStep}
@@ -365,11 +359,6 @@ export default function RegisterPage() {
         )}
       </motion.div>
 
-      <style jsx global>{`
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
     </div>
   );
 }
