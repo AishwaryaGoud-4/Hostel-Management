@@ -1,6 +1,5 @@
 'use client';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/authStore';
@@ -57,9 +56,8 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading]           = useState(false);
   const [step, setStep]                 = useState(1);
+  const [registrationSuccess, setRegistrationSuccess] = useState(null);
   const { register } = useAuthStore();
-  const router        = useRouter();
-
   const update = (key, val) => setFormData(prev => ({ ...prev, [key]: val }));
 
   const handleSubmit = async (e) => {
@@ -68,6 +66,8 @@ export default function RegisterPage() {
       return toast.error('Passwords do not match');
     if (formData.password.length < 8)
       return toast.error('Password must be at least 8 characters');
+    if (!formData.course)
+      return toast.error('Please select your course');
 
     setLoading(true);
     try {
@@ -89,9 +89,15 @@ export default function RegisterPage() {
         },
       };
 
-      await register(payload);
-      toast.success('Account created! You can now sign in.');
-      router.push('/login');
+      const user = await register(payload);
+      const roomLabel = user?.studentProfile?.roomId?.roomNumber
+        || (typeof user?.studentProfile?.roomId === 'object' ? user.studentProfile.roomId.roomNumber : null);
+      setRegistrationSuccess({
+        name: `${formData.firstName} ${formData.lastName}`.trim(),
+        course: formData.course,
+        room: roomLabel || '—',
+      });
+      toast.success('Student registered successfully!');
     } catch (err) {
       toast.error(err.message || 'Registration failed');
     } finally {
@@ -133,6 +139,20 @@ export default function RegisterPage() {
           <div style={{ flex: 1, height: 4, borderRadius: 2, background: step >= 2 ? 'var(--color-primary)' : 'var(--color-border)', transition: 'background 0.3s' }} />
         </div>
 
+        {registrationSuccess ? (
+          <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}
+            className="glass" style={{ padding: 24, borderRadius: 16, textAlign: 'center' }}>
+            <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }} className="gradient-text">Student registered successfully!</h2>
+            <div style={{ textAlign: 'left', fontSize: 15, lineHeight: 1.8, marginBottom: 24 }}>
+              <p><strong>Name:</strong> {registrationSuccess.name}</p>
+              <p><strong>Course:</strong> {registrationSuccess.course}</p>
+              <p><strong>Room:</strong> {registrationSuccess.room}</p>
+            </div>
+            <Link href="/login" className="btn-primary" style={{ display: 'inline-block', padding: '12px 24px', textDecoration: 'none' }}>
+              Sign in
+            </Link>
+          </motion.div>
+        ) : (
         <form onSubmit={handleSubmit}>
           {/* ── Step 1: Account details ── */}
           {step === 1 && (
@@ -203,14 +223,13 @@ export default function RegisterPage() {
                 </Field>
                 <Field label="Course" icon={HiOutlineAcademicCap}>
                   <select value={formData.course} onChange={e => update('course', e.target.value)}
-                    className="input-field" style={{ paddingLeft: 38 }}>
+                    className="input-field" style={{ paddingLeft: 38 }} required>
                     <option value="">Select Course</option>
-                    <option value="B.Tech">B.Tech</option>
-                    <option value="M.Tech">M.Tech</option>
-                    <option value="B.Sc">B.Sc</option>
-                    <option value="M.Sc">M.Sc</option>
-                    <option value="MBA">MBA</option>
-                    <option value="Ph.D">Ph.D</option>
+                    <option value="CSE">CSE</option>
+                    <option value="ECE">ECE</option>
+                    <option value="EEE">EEE</option>
+                    <option value="BSC">BSC</option>
+                    <option value="BBA">BBA</option>
                   </select>
                 </Field>
               </div>
@@ -251,13 +270,16 @@ export default function RegisterPage() {
             </motion.div>
           )}
         </form>
+        )}
 
+        {!registrationSuccess && (
         <p style={{ textAlign: 'center', marginTop: 22, fontSize: 14, color: 'var(--color-text-muted)' }}>
           Already have an account?{' '}
           <Link href="/login" style={{ color: 'var(--color-primary-light)', textDecoration: 'none', fontWeight: 600 }}>
             Sign In
           </Link>
         </p>
+        )}
       </motion.div>
     </div>
   );
