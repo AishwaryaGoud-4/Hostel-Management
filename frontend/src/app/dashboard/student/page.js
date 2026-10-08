@@ -6,24 +6,21 @@ import api from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { useSocket } from '@/store/socketProvider';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { extractRoomFromMeResponse } from '@/lib/roomResponse';
+import StatusBadge from '@/components/ui/StatusBadge';
 import toast from 'react-hot-toast';
 
 /* ── Wanderlust Dusk tokens (mirrored for inline styles) ────── */
 const T = {
-  primary:    '#e2725b',
-  accent:     '#2a9d8f',
-  accentLight:'#5fc9ba',
-  success:    '#6fae66',
-  warning:    '#f4a259',
-  danger:     '#e15554',
-  primaryLight:'#f2a679',
-  textMuted:  '#a89f92',
-  bgSurface:  'rgba(23,20,15,0.6)',
-};
-
-const StatusBadge = ({ status }) => {
-  const map = { OPEN: 'badge-open', IN_PROGRESS: 'badge-progress', RESOLVED: 'badge-resolved', CLOSED: 'badge-resolved', ESCALATED: 'badge-critical', CRITICAL: 'badge-critical', PENDING: 'badge-pending' };
-  return <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600 }} className={map[status] || 'badge-pending'}>{status}</span>;
+  primary:    '#2563eb',
+  accent:     '#059669',
+  accentLight:'#34d399',
+  success:    '#16a34a',
+  warning:    '#d97706',
+  danger:     '#dc2626',
+  primaryLight:'#93c5fd',
+  textMuted:  '#94a3b8',
+  bgSurface:  'rgba(15,23,42,0.45)',
 };
 
 const TODAY_STATUS_LABELS = {
@@ -40,6 +37,8 @@ export default function StudentDashboard() {
   const [complaints, setComplaints] = useState([]);
   const [fees, setFees] = useState({ invoices: [], totalDue: 0 });
   const [attendance, setAttendance] = useState({ percentage: 0, presentCount: 0, totalDays: 0, todayStatus: null });
+  const [room, setRoom] = useState(null);
+  const [roomPulse, setRoomPulse] = useState(false);
 
   const loadData = async () => {
     const [cRes, fRes, aRes] = await Promise.all([
@@ -50,6 +49,8 @@ export default function StudentDashboard() {
     setComplaints(cRes.data?.complaints || []);
     setFees(fRes.data || { invoices: [], totalDue: 0 });
     setAttendance(aRes.data || { percentage: 0, presentCount: 0, totalDays: 0, todayStatus: null });
+    const roomRes = await api.get('/rooms/me').catch(() => null);
+    setRoom(extractRoomFromMeResponse(roomRes));
   };
 
   useEffect(() => { loadData(); }, []);
@@ -61,21 +62,40 @@ export default function StudentDashboard() {
       loadData();
       toast('Your attendance has been updated!', { icon: '📋' });
     };
-    const onUserUpdate = (data) => {
+    const onRoom = (event) => {
+      const eventUserId = event?.user?._id || event?.student?._id;
+      const sameUser = eventUserId && String(eventUserId) === String(user?._id);
+      const myCode = user?.studentProfile?.roomCode;
+      const sameRoom = myCode && (event?.room?.roomId === myCode || event?.room?.roomCode === myCode);
+      if (!sameUser && !sameRoom) return;
+      loadData();
+      if (!sameUser) return;
+      setRoomPulse(true);
+      toast('Your room assignment was updated', { icon: '🛏️' });
+      window.setTimeout(() => setRoomPulse(false), 1200);
+    };
+    const onUserUpdate = () => {
       toast('Your profile has been updated!', { icon: '👤' });
+      loadData();
     };
     socket.on('attendance:updated', onAttendanceUpdate);
     socket.on('user:updated', onUserUpdate);
+    socket.on('room:allocated', onRoom);
+    socket.on('room:updated', onRoom);
+    socket.on('room:vacated', onRoom);
     return () => {
       socket.off('attendance:updated', onAttendanceUpdate);
       socket.off('user:updated', onUserUpdate);
+      socket.off('room:allocated', onRoom);
+      socket.off('room:updated', onRoom);
+      socket.off('room:vacated', onRoom);
     };
-  }, [socket]);
+  }, [socket, user?._id, user?.studentProfile?.roomCode]);
 
   const todayInfo = TODAY_STATUS_LABELS[attendance.todayStatus];
 
   const quickStats = [
-    { icon: FiGrid, label: 'My Room', value: user?.studentProfile?.roomId?.roomNumber || user?.studentProfile?.roomId ? (typeof user.studentProfile.roomId === 'object' ? `Room ${user.studentProfile.roomId.roomNumber}` : 'Assigned') : 'Not Assigned', color: user?.studentProfile?.roomId ? T.primary : T.textMuted },
+    { icon: FiGrid, label: 'My Room', value: room?.roomId || user?.studentProfile?.roomCode || 'Not Assigned', color: room?.roomId ? T.primary : T.textMuted },
     { icon: FiCalendar, label: 'Attendance', value: `${attendance.percentage}%`, color: attendance.percentage >= 75 ? T.success : T.danger },
     { icon: FiAlertCircle, label: 'Open Complaints', value: complaints.filter(c => c.status === 'OPEN').length, color: T.warning },
     { icon: FiDollarSign, label: 'Fees Due', value: `₹${(fees.totalDue || 0).toLocaleString()}`, color: T.danger },
@@ -136,6 +156,23 @@ export default function StudentDashboard() {
           </motion.div>
         ))}
       </div>
+
+      {room && (
+        <motion.section {...sectionMotion(0.35)} className={`glass${roomPulse ? ' room-live' : ''}`} style={{ padding: 20, borderRadius: 16, marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12 }}>
+            <h3 style={{ fontSize: 16 }}>Assigned room</h3>
+            <StatusBadge status={room.status}>{room.status || 'Available'}</StatusBadge>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, fontSize: 13 }}>
+            <div><p style={{ color: 'var(--color-text-muted)' }}>Room ID</p><strong>{room.roomId}</strong></div>
+            <div><p style={{ color: 'var(--color-text-muted)' }}>Room number</p><strong>{room.roomNumber}</strong></div>
+            <div><p style={{ color: 'var(--color-text-muted)' }}>Course</p><strong>{room.course}</strong></div>
+            <div><p style={{ color: 'var(--color-text-muted)' }}>Capacity</p><strong>{room.capacity}</strong></div>
+            <div><p style={{ color: 'var(--color-text-muted)' }}>Occupied beds</p><strong>{room.occupied}</strong></div>
+            <div><p style={{ color: 'var(--color-text-muted)' }}>Available beds</p><strong>{room.availableBeds}</strong></div>
+          </div>
+        </motion.section>
+      )}
 
       {/* Attendance Warning */}
       {attendance.percentage > 0 && attendance.percentage < 75 && (

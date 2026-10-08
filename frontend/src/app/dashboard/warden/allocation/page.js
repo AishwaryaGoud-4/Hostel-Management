@@ -18,9 +18,9 @@ import toast from 'react-hot-toast';
 import { useSocket } from '@/store/socketProvider';
 
 const T = {
-  primary: '#e2725b', accent: '#2a9d8f', accentLight: '#5fc9ba',
-  success: '#6fae66', warning: '#f4a259', danger: '#e15554',
-  textMuted: '#a89f92', bgSurface: 'rgba(23,20,15,0.6)', border: '#34302a',
+  primary: '#2563eb', accent: '#059669', accentLight: '#34d399',
+  success: '#16a34a', warning: '#d97706', danger: '#dc2626',
+  textMuted: '#94a3b8', bgSurface: 'rgba(15,23,42,0.45)', border: '#243044',
 };
 
 const BLOCKS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
@@ -364,9 +364,9 @@ export default function RoomAllocationPage() {
                   return (
                     <div key={r._id} style={{
                       padding: '8px 6px', borderRadius: 8, textAlign: 'center', fontSize: 13, fontWeight: 700,
-                      background: isOccupied ? 'rgba(226,114,91,0.15)' : 'rgba(42,157,143,0.15)',
+                      background: isOccupied ? 'rgba(37,99,235,0.15)' : 'rgba(5,150,105,0.15)',
                       color: isOccupied ? T.primary : T.accentLight,
-                      border: `1px solid ${isOccupied ? 'rgba(226,114,91,0.25)' : 'rgba(42,157,143,0.25)'}`,
+                      border: `1px solid ${isOccupied ? 'rgba(37,99,235,0.25)' : 'rgba(5,150,105,0.25)'}`,
                     }}>
                       {r.roomNumber}
                     </div>

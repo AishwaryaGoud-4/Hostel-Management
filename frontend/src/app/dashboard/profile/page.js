@@ -18,8 +18,8 @@ import api from '@/lib/api';
 import toast from 'react-hot-toast';
 
 const ROLE_STYLES = {
-  SUPER_ADMIN: { color: 'var(--color-primary)',   bg: 'rgba(226,114,91,0.15)', label: 'Super Admin' },
-  WARDEN:      { color: 'var(--color-accent)',     bg: 'rgba(42,157,143,0.15)', label: 'Warden' },
+  SUPER_ADMIN: { color: 'var(--color-primary)',   bg: 'rgba(37,99,235,0.15)', label: 'Super Admin' },
+  WARDEN:      { color: 'var(--color-accent)',     bg: 'rgba(5,150,105,0.15)', label: 'Warden' },
   STUDENT:     { color: 'var(--color-success)',    bg: 'rgba(111,174,102,0.15)',label: 'Student' },
   STAFF:       { color: 'var(--color-warning)',    bg: 'rgba(244,162,89,0.15)', label: 'Maintenance Staff' },
 };
@@ -29,8 +29,8 @@ function Section({ title, icon: Icon, delay = 0, children }) {
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay }}
       className="glass" style={{ padding: 28, borderRadius: 18, marginBottom: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid rgba(226,114,91,0.08)' }}>
-        <div className="icon-box icon-box-sm" style={{ background: 'rgba(226,114,91,0.12)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid rgba(37,99,235,0.08)' }}>
+        <div className="icon-box icon-box-sm" style={{ background: 'rgba(37,99,235,0.12)' }}>
           <Icon size={17} color="var(--color-primary-light)" />
         </div>
         <h2 style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Fraunces', serif" }}>{title}</h2>
@@ -105,7 +105,7 @@ export default function ProfilePage() {
     /[0-9]/.test(passwords.newPass),
     /[^A-Za-z0-9]/.test(passwords.newPass),
   ].filter(Boolean).length;
-  const strengthColors = ['#e15554','#f4a259','var(--color-accent)','var(--color-success)'];
+  const strengthColors = ['#dc2626','#d97706','var(--color-accent)','var(--color-success)'];
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -113,7 +113,7 @@ export default function ProfilePage() {
       {/* Profile header card */}
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}
         className="glass"
-        style={{ padding: 28, borderRadius: 20, marginBottom: 20, background: 'linear-gradient(135deg, rgba(226,114,91,0.1), rgba(42,157,143,0.05))' }}>
+        style={{ padding: 28, borderRadius: 20, marginBottom: 20, background: 'linear-gradient(135deg, rgba(37,99,235,0.1), rgba(5,150,105,0.05))' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
 
           {/* Avatar */}
@@ -122,7 +122,7 @@ export default function ProfilePage() {
             background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 26, fontWeight: 800, color: 'white',
-            boxShadow: '0 0 24px rgba(226,114,91,0.35)',
+            boxShadow: '0 0 24px rgba(37,99,235,0.35)',
             fontFamily: "'Fraunces', serif",
           }}>
             {user?.firstName?.[0]}{user?.lastName?.[0]}
@@ -143,7 +143,7 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          <div className="icon-box icon-box-lg" style={{ background: 'rgba(226,114,91,0.08)' }}>
+          <div className="icon-box icon-box-lg" style={{ background: 'rgba(37,99,235,0.08)' }}>
             <HiOutlineCpuChip size={28} color="var(--color-primary)" />
           </div>
         </div>
@@ -261,12 +261,12 @@ export default function ProfilePage() {
       {/* Danger Zone */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
         style={{ padding: 24, borderRadius: 16, border: '1px solid rgba(225,85,84,0.2)', background: 'rgba(225,85,84,0.04)' }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: '#e15554', marginBottom: 8 }}>⚠ Danger Zone</h3>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: '#dc2626', marginBottom: 8 }}>⚠ Danger Zone</h3>
         <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 16, lineHeight: 1.6 }}>
           Account deletion is permanent and cannot be undone. Contact your administrator to request removal.
         </p>
         <button className="btn-secondary"
-          style={{ borderColor: '#e15554', color: '#e15554', padding: '10px 20px', fontSize: 13 }}
+          style={{ borderColor: '#dc2626', color: '#dc2626', padding: '10px 20px', fontSize: 13 }}
           onClick={() => toast.error('Please contact your administrator to delete this account.')}>
           Request Account Deletion
         </button>

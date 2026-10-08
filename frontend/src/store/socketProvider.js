@@ -16,6 +16,7 @@ export function SocketProvider({ children }) {
   const { user, isAuthenticated } = useAuthStore();
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const socketRef = useRef(null);
 
   useEffect(() => {
@@ -66,6 +67,7 @@ export function SocketProvider({ children }) {
 
     // Global notification handler
     sock.on('notification:new', (notification) => {
+      setUnreadCount((count) => count + 1);
       toast(notification.message || 'New notification', {
         icon: notification.type === 'ATTENDANCE' ? '📋' : '🔔',
         duration: 5000,
@@ -77,11 +79,12 @@ export function SocketProvider({ children }) {
       socketRef.current = null;
       setSocket(null);
       setIsConnected(false);
+      setUnreadCount(0);
     };
   }, [isAuthenticated, user]);
 
   return (
-    <SocketContext.Provider value={{ socket, isConnected }}>
+    <SocketContext.Provider value={{ socket, isConnected, unreadCount, clearUnread: () => setUnreadCount(0) }}>
       {children}
     </SocketContext.Provider>
   );

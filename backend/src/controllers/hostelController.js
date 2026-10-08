@@ -3,6 +3,14 @@ const Hostel = require('../models/Hostel');
 const Room = require('../models/Room');
 const User = require('../models/User');
 const { paginateQuery } = require('../utils/helpers');
+const { isValidCourse, NO_ROOMS_MESSAGE } = require('../constants/courses');
+const {
+  syncOccupancyStatus,
+  studentRoomAssignment,
+  clearedStudentRoom,
+  serializeRoomListItem,
+} = require('../utils/roomHelpers');
+const { emitRoomSync } = require('../utils/roomEvents');
 
 // ===== HOSTEL =====
 exports.createHostel = async (req, res) => {
@@ -101,16 +109,40 @@ exports.allocateRoom = async (req, res) => {
     const { roomId, studentId } = req.body;
     const room = await Room.findById(roomId).session(session);
     if (!room) { await session.abortTransaction(); return res.status(404).json({ success: false, message: 'Room not found' }); }
-    if (room.occupants.length >= room.capacity) { await session.abortTransaction(); return res.status(400).json({ success: false, message: 'Room full' }); }
+
+    const student = await User.findById(studentId).session(session);
+    if (!student || student.role !== 'STUDENT') {
+      await session.abortTransaction();
+      return res.status(404).json({ success: false, message: 'Student not found' });
+    }
+    if (student.studentProfile?.roomId) {
+      await session.abortTransaction();
+      return res.status(409).json({ success: false, message: 'Student already has a room. Change the room instead of creating another allocation.' });
+    }
+    if (room.course && isValidCourse(student.studentProfile?.course) && room.course !== student.studentProfile.course) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'Students can only be allocated to rooms for their own course.' });
+    }
+    if (room.occupants.some((id) => id.toString() === String(studentId))) {
+      await session.abortTransaction();
+      return res.status(409).json({ success: false, message: 'Student is already assigned to this room.' });
+    }
+    if (room.occupants.length >= room.capacity) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'This room is full.' });
+    }
 
     room.occupants.push(new mongoose.Types.ObjectId(studentId));
-    if (room.occupants.length >= room.capacity) room.status = 'OCCUPIED';
+    syncOccupancyStatus(room);
     await room.save({ session });
 
-    await User.findByIdAndUpdate(studentId, { 'studentProfile.roomId': room._id, 'studentProfile.hostelId': room.hostelId }, { session });
+    await User.findByIdAndUpdate(studentId, studentRoomAssignment(room), { session });
     await Hostel.findByIdAndUpdate(room.hostelId, { $inc: { occupiedBeds: 1 } }, { session });
     await session.commitTransaction();
-    res.status(200).json({ success: true, message: 'Room allocated', data: { room } });
+
+    const dto = serializeRoomListItem(room);
+    emitRoomSync(req.app.get('io'), { type: 'room:allocated', user: student, room: dto, hostelId: room.hostelId });
+    res.status(200).json({ success: true, message: 'Room allocated', data: { room: dto } });
   } catch (e) { await session.abortTransaction(); res.status(500).json({ success: false, message: 'Allocation failed', error: e.message }); }
   finally { session.endSession(); }
 };
@@ -122,13 +154,20 @@ exports.deallocateRoom = async (req, res) => {
     const { roomId, studentId } = req.body;
     const room = await Room.findById(roomId).session(session);
     if (!room) { await session.abortTransaction(); return res.status(404).json({ success: false, message: 'Room not found' }); }
-    room.occupants = room.occupants.filter((id) => id.toString() !== studentId);
-    if (room.occupants.length < room.capacity) room.status = 'AVAILABLE';
+    const before = room.occupants.length;
+    room.occupants = room.occupants.filter((id) => id.toString() !== String(studentId));
+    const removed = room.occupants.length < before;
+    syncOccupancyStatus(room);
     await room.save({ session });
-    await User.findByIdAndUpdate(studentId, { 'studentProfile.roomId': null, 'studentProfile.hostelId': null }, { session });
-    await Hostel.findByIdAndUpdate(room.hostelId, { $inc: { occupiedBeds: -1 } }, { session });
+    if (removed) {
+      await User.findByIdAndUpdate(studentId, { $set: clearedStudentRoom() }, { session });
+      await Hostel.findByIdAndUpdate(room.hostelId, { $inc: { occupiedBeds: -1 } }, { session });
+    }
     await session.commitTransaction();
-    res.status(200).json({ success: true, message: 'Room deallocated', data: { room } });
+    const dto = serializeRoomListItem(room);
+    const student = await User.findById(studentId);
+    emitRoomSync(req.app.get('io'), { type: 'room:vacated', user: student, room: dto, hostelId: room.hostelId });
+    res.status(200).json({ success: true, message: 'Room deallocated', data: { room: dto } });
   } catch (e) { await session.abortTransaction(); res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
   finally { session.endSession(); }
 };
@@ -156,13 +195,21 @@ exports.autoAllocateRoom = async (req, res) => {
 
     // Build room query: find rooms with available beds
     const roomFilter = { hostelId, status: { $in: ['AVAILABLE'] } };
+    const studentCourse = student.studentProfile?.course;
+    if (isValidCourse(studentCourse)) roomFilter.course = studentCourse;
     if (preferredFloor) roomFilter.floor = preferredFloor;
     if (preferredType) roomFilter.type = preferredType;
 
     let rooms = await Room.find(roomFilter).session(session);
 
     // If no rooms match preferences, broaden the search
-    if (rooms.length === 0) {
+    if (rooms.length === 0 && isValidCourse(student.studentProfile?.course)) {
+      rooms = await Room.find({
+        hostelId,
+        course: student.studentProfile.course,
+        status: { $nin: ['MAINTENANCE', 'RESERVED'] },
+      }).session(session);
+    } else if (rooms.length === 0) {
       rooms = await Room.find({ hostelId, status: { $in: ['AVAILABLE'] } }).session(session);
     }
 
@@ -171,7 +218,10 @@ exports.autoAllocateRoom = async (req, res) => {
 
     if (availableRooms.length === 0) {
       await session.abortTransaction();
-      return res.status(400).json({ success: false, message: 'No available rooms in this hostel' });
+      const message = isValidCourse(student.studentProfile?.course)
+        ? NO_ROOMS_MESSAGE
+        : 'No available rooms in this hostel';
+      return res.status(400).json({ success: false, message });
     }
 
     // Scoring algorithm: prefer rooms that match student preferences
@@ -207,13 +257,10 @@ exports.autoAllocateRoom = async (req, res) => {
 
     // Allocate
     bestRoom.occupants.push(new mongoose.Types.ObjectId(studentId));
-    if (bestRoom.occupants.length >= bestRoom.capacity) bestRoom.status = 'OCCUPIED';
+    syncOccupancyStatus(bestRoom);
     await bestRoom.save({ session });
 
-    await User.findByIdAndUpdate(studentId, {
-      'studentProfile.roomId': bestRoom._id,
-      'studentProfile.hostelId': bestRoom.hostelId,
-    }, { session });
+    await User.findByIdAndUpdate(studentId, studentRoomAssignment(bestRoom), { session });
 
     await Hostel.findByIdAndUpdate(bestRoom.hostelId, { $inc: { occupiedBeds: 1 } }, { session });
     await session.commitTransaction();
@@ -294,7 +341,7 @@ exports.reassignRoom = async (req, res) => {
       const oldRoom = await Room.findById(oldRoomId).session(session);
       if (oldRoom) {
         oldRoom.occupants = oldRoom.occupants.filter((id) => id.toString() !== studentId);
-        if (oldRoom.occupants.length < oldRoom.capacity) oldRoom.status = 'AVAILABLE';
+        syncOccupancyStatus(oldRoom);
         await oldRoom.save({ session });
         await Hostel.findByIdAndUpdate(oldRoom.hostelId, { $inc: { occupiedBeds: -1 } }, { session });
       }
@@ -303,16 +350,21 @@ exports.reassignRoom = async (req, res) => {
     // Add to new room
     const newRoom = await Room.findById(newRoomId).session(session);
     if (!newRoom) { await session.abortTransaction(); return res.status(404).json({ success: false, message: 'New room not found' }); }
+    if (newRoom.course && isValidCourse(student.studentProfile?.course) && newRoom.course !== student.studentProfile.course) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'Students can only be allocated to rooms for their own course.' });
+    }
     if (newRoom.occupants.length >= newRoom.capacity) { await session.abortTransaction(); return res.status(400).json({ success: false, message: 'New room is full' }); }
+    if (newRoom.occupants.some((id) => id.toString() === String(studentId))) {
+      await session.abortTransaction();
+      return res.status(409).json({ success: false, message: 'Student is already assigned to this room.' });
+    }
 
     newRoom.occupants.push(new mongoose.Types.ObjectId(studentId));
-    if (newRoom.occupants.length >= newRoom.capacity) newRoom.status = 'OCCUPIED';
+    syncOccupancyStatus(newRoom);
     await newRoom.save({ session });
 
-    await User.findByIdAndUpdate(studentId, {
-      'studentProfile.roomId': newRoom._id,
-      'studentProfile.hostelId': newRoom.hostelId,
-    }, { session });
+    await User.findByIdAndUpdate(studentId, studentRoomAssignment(newRoom), { session });
     await Hostel.findByIdAndUpdate(newRoom.hostelId, { $inc: { occupiedBeds: 1 } }, { session });
 
     await session.commitTransaction();
@@ -339,7 +391,7 @@ exports.seedRooms = async (req, res) => {
     // 1. Reset all student room assignments
     await User.updateMany(
       { role: 'STUDENT' },
-      { $set: { 'studentProfile.roomId': null, 'studentProfile.hostelId': null } }
+      { $set: { 'studentProfile.roomId': null, 'studentProfile.hostelId': null, 'studentProfile.roomCode': null, 'studentProfile.roomNumber': null, 'studentProfile.roomAssignedAt': null } }
     );
 
     // 2. Remove existing rooms for this hostel (clean slate)

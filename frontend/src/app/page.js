@@ -21,12 +21,12 @@ import {
 } from 'react-icons/hi2';
 
 const features = [
-  { icon: HiOutlineCpuChip,         title: 'AI-Powered Analytics',     desc: 'Room forecasting, utility anomaly detection, and predictive fee risk scoring driven by ML.',    color: '#e2725b', grad: 'rgba(226,114,91,' },
-  { icon: HiOutlineBuildingOffice2, title: 'Smart Room Allocation',     desc: 'Algorithmic bed assignment based on preferences with concurrent booking safety.',              color: '#2a9d8f', grad: 'rgba(42,157,143,' },
-  { icon: HiOutlineShieldCheck,     title: 'Attendance & Geofence',    desc: 'Dynamic QR scanning with GPS-based geofence validation for secure hostel check-ins.',           color: '#6fae66', grad: 'rgba(111,174,102,' },
-  { icon: HiOutlineBell,            title: 'Real-time Notifications',   desc: 'Live updates via Socket.IO for complaints, gate-pass approvals, and emergencies.',             color: '#f4a259', grad: 'rgba(244,162,89,' },
-  { icon: HiOutlineDocumentText,    title: 'Gate Pass Management',      desc: 'Digital gate pass requests, warden approvals, and QR-based verification at the gate.',         color: '#5fc9ba', grad: 'rgba(95,201,186,' },
-  { icon: HiOutlineUsers,           title: 'Role-Based Access',         desc: 'Multi-tier access for Super Admin, Warden, Student and Maintenance Staff — zero overlap.',      color: '#f2a679', grad: 'rgba(242,166,121,' },
+  { icon: HiOutlineCpuChip,         title: 'AI-Powered Analytics',     desc: 'Room forecasting, utility anomaly detection, and predictive fee risk scoring driven by ML.',    color: '#2563eb', grad: 'rgba(37,99,235,' },
+  { icon: HiOutlineBuildingOffice2, title: 'Smart Room Allocation',     desc: 'Algorithmic bed assignment based on preferences with concurrent booking safety.',              color: '#059669', grad: 'rgba(5,150,105,' },
+  { icon: HiOutlineShieldCheck,     title: 'Attendance & Geofence',    desc: 'Dynamic QR scanning with GPS-based geofence validation for secure hostel check-ins.',           color: '#16a34a', grad: 'rgba(111,174,102,' },
+  { icon: HiOutlineBell,            title: 'Real-time Notifications',   desc: 'Live updates via Socket.IO for complaints, gate-pass approvals, and emergencies.',             color: '#d97706', grad: 'rgba(244,162,89,' },
+  { icon: HiOutlineDocumentText,    title: 'Gate Pass Management',      desc: 'Digital gate pass requests, warden approvals, and QR-based verification at the gate.',         color: '#34d399', grad: 'rgba(95,201,186,' },
+  { icon: HiOutlineUsers,           title: 'Role-Based Access',         desc: 'Multi-tier access for Super Admin, Warden, Student and Maintenance Staff — zero overlap.',      color: '#93c5fd', grad: 'rgba(242,166,121,' },
 ];
 
 const stats = [
@@ -45,7 +45,7 @@ export default function LandingPage() {
       {/* ── Navbar ──────────────────────────────────────────────── */}
       <nav className="glass" style={{
         position: 'sticky', top: 0, zIndex: 50,
-        borderBottom: '1px solid rgba(226,114,91,0.1)',
+        borderBottom: '1px solid rgba(37,99,235,0.1)',
         padding: '0 clamp(16px, 4vw, 48px)',
       }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', alignItems: 'center', height: 64, gap: 16 }}>
@@ -88,7 +88,7 @@ export default function LandingPage() {
             {/* Mobile hamburger */}
             <button className="mobile-hamburger touch-btn"
               onClick={() => setMenuOpen(!menuOpen)}
-              style={{ background: 'rgba(226,114,91,0.08)', border: '1px solid rgba(226,114,91,0.15)', borderRadius: 10, cursor: 'pointer', color: 'var(--color-text-muted)' }}>
+              style={{ background: 'rgba(37,99,235,0.08)', border: '1px solid rgba(37,99,235,0.15)', borderRadius: 10, cursor: 'pointer', color: 'var(--color-text-muted)' }}>
               {menuOpen ? <HiOutlineXMark size={22} /> : <HiOutlineBars3 size={22} />}
             </button>
           </div>
@@ -98,7 +98,7 @@ export default function LandingPage() {
         <AnimatePresence>
           {menuOpen && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-              style={{ borderTop: '1px solid rgba(226,114,91,0.08)', padding: '16px clamp(16px,4vw,48px)' }}>
+              style={{ borderTop: '1px solid rgba(37,99,235,0.08)', padding: '16px clamp(16px,4vw,48px)' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 320 }}>
                 {['Features', 'About'].map(l => (
                   <a key={l} href={`#${l.toLowerCase()}`} onClick={() => setMenuOpen(false)}
@@ -106,7 +106,7 @@ export default function LandingPage() {
                     {l}
                   </a>
                 ))}
-                <div style={{ borderTop: '1px solid rgba(226,114,91,0.08)', paddingTop: 12, marginTop: 8, display: 'flex', gap: 10 }}>
+                <div style={{ borderTop: '1px solid rgba(37,99,235,0.08)', paddingTop: 12, marginTop: 8, display: 'flex', gap: 10 }}>
                   <Link href="/login" className="btn-secondary" style={{ textDecoration: 'none', flex: 1, textAlign: 'center', padding: '10px 0', fontSize: 14 }}>
                     Sign In
                   </Link>
@@ -126,7 +126,7 @@ export default function LandingPage() {
         {/* Badge */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 14px', borderRadius: 99,
-            background: 'rgba(226,114,91,0.12)', border: '1px solid rgba(226,114,91,0.25)',
+            background: 'rgba(37,99,235,0.12)', border: '1px solid rgba(37,99,235,0.25)',
             marginBottom: 28 }}>
           <HiOutlineSparkles size={14} style={{ color: 'var(--color-primary)' }} />
           <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-primary-light)', letterSpacing: 0.5 }}>
@@ -163,7 +163,7 @@ export default function LandingPage() {
           style={{ display: 'flex', gap: 'clamp(20px, 4vw, 48px)', flexWrap: 'wrap', marginTop: 60, paddingTop: 40, borderTop: '1px solid var(--color-border)' }}>
           {stats.map((s, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div className="icon-box icon-box-sm" style={{ background: 'rgba(226,114,91,0.1)' }}>
+              <div className="icon-box icon-box-sm" style={{ background: 'rgba(37,99,235,0.1)' }}>
                 <s.icon size={16} color="var(--color-primary)" />
               </div>
               <div>
@@ -205,7 +205,7 @@ export default function LandingPage() {
 
       {/* ── About / Why section ─────────────────────────────────── */}
       <section id="about" style={{ maxWidth: 1200, margin: '0 auto', padding: 'clamp(48px, 8vw, 96px) clamp(16px, 4vw, 48px)', position: 'relative', zIndex: 1 }}>
-        <div className="glass" style={{ padding: 'clamp(36px, 6vw, 64px)', borderRadius: 24, background: 'linear-gradient(135deg, rgba(226,114,91,0.07), rgba(42,157,143,0.05))' }}>
+        <div className="glass" style={{ padding: 'clamp(36px, 6vw, 64px)', borderRadius: 24, background: 'linear-gradient(135deg, rgba(37,99,235,0.07), rgba(5,150,105,0.05))' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 40, alignItems: 'center' }}>
             <div>
               <h2 style={{ fontSize: 'clamp(24px, 4vw, 36px)', fontWeight: 700, marginBottom: 16, fontFamily: "'Fraunces', serif" }}>
@@ -256,13 +256,13 @@ export default function LandingPage() {
         <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
           className="cta-card glass"
           style={{ padding: 'clamp(40px, 6vw, 64px)', borderRadius: 24, textAlign: 'center', position: 'relative', overflow: 'hidden',
-            background: 'linear-gradient(135deg, rgba(226,114,91,0.1), rgba(42,157,143,0.07))' }}>
+            background: 'linear-gradient(135deg, rgba(37,99,235,0.1), rgba(5,150,105,0.07))' }}>
 
           {/* Decorative blobs inside CTA */}
           <div style={{ position: 'absolute', top: -80, right: -80, width: 280, height: 280, borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(226,114,91,0.15) 0%, transparent 70%)', pointerEvents: 'none' }} />
+            background: 'radial-gradient(circle, rgba(37,99,235,0.15) 0%, transparent 70%)', pointerEvents: 'none' }} />
           <div style={{ position: 'absolute', bottom: -60, left: -60, width: 240, height: 240, borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(42,157,143,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
+            background: 'radial-gradient(circle, rgba(5,150,105,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
 
           <div style={{ position: 'relative', zIndex: 1 }}>
             <h2 style={{ fontSize: 'clamp(24px, 5vw, 42px)', fontWeight: 700, marginBottom: 14, fontFamily: "'Fraunces', serif" }}>

@@ -3,9 +3,41 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../models/User');
+const Room = require('../models/Room');
+const Hostel = require('../models/Hostel');
 const config = require('../config');
 const { isValidCourse } = require('../constants/courses');
 const { allocateCourseRoom } = require('../services/courseRoomAllocation');
+const { buildMyRoomResponse } = require('../utils/roomHelpers');
+const { emitRoomSync } = require('../utils/roomEvents');
+const { ensureCourseRooms } = require('../utils/ensureCourseRooms');
+const { NO_ROOMS_MESSAGE } = require('../constants/courses');
+
+async function buildRegistrationRoomSummary(userId) {
+  const user = await User.findById(userId);
+  if (!user?.studentProfile?.roomId) return null;
+
+  const room = await Room.findById(user.studentProfile.roomId).populate(
+    'occupants',
+    'firstName lastName studentProfile.course'
+  );
+  if (!room) return null;
+
+  const hostel = await Hostel.findById(room.hostelId);
+  const payload = buildMyRoomResponse({ room, hostel, user, studentUserId: user._id });
+  return {
+    roomId: payload.roomId,
+    roomCode: payload.roomCode,
+    roomNumber: payload.roomNumber,
+    roomNo: payload.roomNo,
+    course: payload.course,
+    capacity: payload.capacity,
+    occupied: payload.occupied,
+    occupiedBeds: payload.occupied,
+    availableBeds: payload.availableBeds,
+    status: payload.status,
+  };
+}
 
 const generateTokens = (payload) => {
   const accessToken = jwt.sign(payload, config.jwt.accessSecret, { expiresIn: config.jwt.accessExpiry });
@@ -30,6 +62,14 @@ const setTokenCookies = (res, accessToken, refreshToken) => {
 };
 
 exports.register = async (req, res) => {
+  const effectiveRole = req.body?.role || 'STUDENT';
+  if (effectiveRole === 'STUDENT') {
+    const seeded = await ensureCourseRooms();
+    if (!seeded.ok) {
+      return res.status(400).json({ success: false, message: seeded.message });
+    }
+  }
+
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
@@ -73,7 +113,10 @@ exports.register = async (req, res) => {
       const allocation = await allocateCourseRoom(studentProfile.course, user._id, session);
       if (!allocation.ok) {
         await session.abortTransaction();
-        return res.status(400).json({ success: false, message: allocation.message });
+        return res.status(allocation.status || 400).json({
+          success: false,
+          message: allocation.message || NO_ROOMS_MESSAGE,
+        });
       }
     }
 
@@ -87,7 +130,18 @@ exports.register = async (req, res) => {
 
     const populatedUser = await User.findById(user._id)
       .populate('studentProfile.hostelId', 'name code')
-      .populate('studentProfile.roomId', 'roomNumber floor type course capacity');
+      .populate('studentProfile.roomId', 'roomNumber roomNo floor type course capacity block status');
+
+    let roomSummary = null;
+    if (isStudent) {
+      roomSummary = await buildRegistrationRoomSummary(user._id);
+      if (!roomSummary?.roomId) {
+        return res.status(500).json({
+          success: false,
+          message: 'Registration completed but room allocation data is missing. Please contact the administrator.',
+        });
+      }
+    }
 
     const io = req.app.get('io');
     if (io) {
@@ -100,16 +154,144 @@ exports.register = async (req, res) => {
         }
       }
       io.to('role_SUPER_ADMIN').emit('user:added', userJson);
+      if (isStudent && roomSummary) {
+        emitRoomSync(io, {
+          type: 'room:allocated',
+          user: populatedUser,
+          room: roomSummary,
+          hostelId: userJson.studentProfile?.hostelId,
+        });
+      }
     }
+
+    const studentName = `${firstName} ${lastName}`.trim();
 
     res.status(201).json({
       success: true,
       message: 'Registration successful',
-      data: { user: populatedUser, accessToken },
+      student: isStudent
+        ? { name: studentName, course: studentProfile.course }
+        : undefined,
+      room: roomSummary,
+      data: {
+        user: populatedUser,
+        accessToken,
+        room: roomSummary,
+        student: isStudent ? { name: studentName, course: studentProfile.course } : undefined,
+      },
     });
   } catch (error) {
-    await session.abortTransaction();
-    res.status(500).json({ success: false, message: 'Registration failed', error: error.message });
+    if (session.inTransaction()) await session.abortTransaction();
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: 'Registration failed', error: error.message });
+    }
+  } finally {
+    session.endSession();
+  }
+};
+
+exports.createStudent = async (req, res) => {
+  const coursePreview = req.body?.studentProfile?.course;
+  if (isValidCourse(coursePreview)) {
+    const seeded = await ensureCourseRooms();
+    if (!seeded.ok) {
+      return res.status(400).json({ success: false, message: seeded.message });
+    }
+  }
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const { firstName, lastName, email, password, phone, studentProfile } = req.body;
+    if (!firstName || !lastName || !email || !password || !phone) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'Name, email, phone, and password are required.' });
+    }
+    if (String(password).length < 8) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters.' });
+    }
+
+    const course = studentProfile?.course;
+    if (!isValidCourse(course)) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: 'Course is required. Choose CSE, ECE, EEE, BSC, or BBA.',
+      });
+    }
+
+    const existing = await User.findOne({ email });
+    if (existing) {
+      await session.abortTransaction();
+      return res.status(409).json({ success: false, message: 'Email already registered' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12);
+    const [user] = await User.create(
+      [{
+        firstName,
+        lastName,
+        email,
+        password: hashedPassword,
+        phone,
+        role: 'STUDENT',
+        studentProfile,
+      }],
+      { session }
+    );
+
+    const allocation = await allocateCourseRoom(course, user._id, session);
+    if (!allocation.ok) {
+      await session.abortTransaction();
+      return res.status(allocation.status || 400).json({
+        success: false,
+        message: allocation.message || NO_ROOMS_MESSAGE,
+      });
+    }
+
+    await session.commitTransaction();
+
+    const populatedUser = await User.findById(user._id)
+      .populate('studentProfile.hostelId', 'name code')
+      .populate('studentProfile.roomId', 'roomNumber roomNo floor type course capacity block status');
+    const roomSummary = await buildRegistrationRoomSummary(user._id);
+    if (!roomSummary?.roomId) {
+      return res.status(500).json({
+        success: false,
+        message: 'Student was created but room allocation data is missing. Please contact the administrator.',
+      });
+    }
+
+    const io = req.app.get('io');
+    if (io) {
+      const userJson = populatedUser.toJSON();
+      io.to('role_WARDEN').emit('student:registered', userJson);
+      io.to('role_WARDEN').emit('student:added', userJson);
+      io.to('role_SUPER_ADMIN').emit('user:added', userJson);
+      const hid = userJson.studentProfile?.hostelId?._id || userJson.studentProfile?.hostelId;
+      if (hid) io.to(`hostel_${hid}`).emit('student:added', userJson);
+      emitRoomSync(io, {
+        type: 'room:allocated',
+        user: populatedUser,
+        room: roomSummary,
+        hostelId: hid,
+      });
+    }
+
+    const studentName = `${firstName} ${lastName}`.trim();
+    res.status(201).json({
+      success: true,
+      message: 'Student added and room allocated',
+      student: { name: studentName, course },
+      room: roomSummary,
+      data: { user: populatedUser, room: roomSummary, student: { name: studentName, course } },
+    });
+  } catch (error) {
+    if (session.inTransaction()) await session.abortTransaction();
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: 'Could not add student', error: error.message });
+    }
   } finally {
     session.endSession();
   }
@@ -131,7 +313,15 @@ exports.login = async (req, res) => {
     await user.save();
     setTokenCookies(res, accessToken, refreshToken);
 
-    res.status(200).json({ success: true, message: 'Login successful', data: { user: user.toJSON(), accessToken } });
+    const populatedUser = await User.findById(user._id)
+      .populate('studentProfile.hostelId', 'name code')
+      .populate('studentProfile.roomId', 'roomNumber roomNo floor type course capacity block status');
+
+    res.status(200).json({
+      success: true,
+      message: 'Login successful',
+      data: { user: populatedUser || user.toJSON(), accessToken },
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Login failed', error: error.message });
   }
@@ -175,7 +365,7 @@ exports.getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user.userId)
       .populate('studentProfile.hostelId', 'name code')
-      .populate('studentProfile.roomId', 'roomNumber floor type course capacity');
+      .populate('studentProfile.roomId', 'roomNumber roomNo floor type course capacity block status occupants');
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
     res.status(200).json({ success: true, message: 'Profile retrieved', data: { user } });
   } catch (error) {
@@ -221,19 +411,39 @@ exports.resetPassword = async (req, res) => {
 
 exports.getAllUsers = async (req, res) => {
   try {
-    const { role, search, page = 1, limit = 20 } = req.query;
+    const { role, search, page = 1, limit = 20, course, unassigned } = req.query;
     const filter = {};
+    const and = [];
     if (role) filter.role = role;
+    if (course) filter['studentProfile.course'] = course;
     if (search) {
-      filter.$or = [
-        { firstName: { $regex: search, $options: 'i' } },
-        { lastName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-      ];
+      and.push({
+        $or: [
+          { firstName: { $regex: search, $options: 'i' } },
+          { lastName: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+          { 'studentProfile.rollNumber': { $regex: search, $options: 'i' } },
+          { 'studentProfile.roomCode': { $regex: search, $options: 'i' } },
+          { 'studentProfile.roomNumber': { $regex: search, $options: 'i' } },
+        ],
+      });
     }
+    if (unassigned === 'true') {
+      and.push({
+        $or: [
+          { 'studentProfile.roomId': null },
+          { 'studentProfile.roomId': { $exists: false } },
+        ],
+      });
+    }
+    if (and.length) filter.$and = and;
     const skip = (Number(page) - 1) * Number(limit);
     const [users, total] = await Promise.all([
-      User.find(filter).skip(skip).limit(Number(limit)).sort({ createdAt: -1 }),
+      User.find(filter)
+        .populate('studentProfile.roomId', 'roomNumber roomNo course capacity status')
+        .skip(skip)
+        .limit(Number(limit))
+        .sort({ createdAt: -1 }),
       User.countDocuments(filter),
     ]);
     res.status(200).json({

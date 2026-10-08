@@ -33,6 +33,4 @@ const leaveRequestSchema = new mongoose.Schema(
 
 leaveRequestSchema.index({ studentId: 1 });
 leaveRequestSchema.index({ hostelId: 1, status: 1 });
-leaveRequestSchema.index({ leaveId: 1 });
-
 module.exports = mongoose.model('LeaveRequest', leaveRequestSchema);

@@ -29,7 +29,6 @@ const hostelSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-hostelSchema.index({ code: 1 });
 hostelSchema.index({ wardenId: 1 });
 
 module.exports = mongoose.model('Hostel', hostelSchema);

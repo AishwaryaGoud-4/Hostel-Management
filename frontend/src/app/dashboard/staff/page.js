@@ -8,13 +8,13 @@ import { useReducedMotion } from '@/hooks/useReducedMotion';
 
 /* ── Wanderlust Dusk tokens (mirrored for inline styles) ────── */
 const T = {
-  primary:    '#e2725b',
-  accent:     '#2a9d8f',
-  success:    '#6fae66',
-  warning:    '#f4a259',
-  danger:     '#e15554',
-  textMuted:  '#a89f92',
-  bgSurface:  'rgba(23,20,15,0.6)',
+  primary:    '#2563eb',
+  accent:     '#059669',
+  success:    '#16a34a',
+  warning:    '#d97706',
+  danger:     '#dc2626',
+  textMuted:  '#94a3b8',
+  bgSurface:  'rgba(15,23,42,0.45)',
 };
 
 export default function StaffDashboard() {

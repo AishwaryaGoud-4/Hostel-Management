@@ -9,14 +9,14 @@ import toast from 'react-hot-toast';
 
 /* ── Wanderlust Dusk tokens ──────────────────────────────────── */
 const T = {
-  primary:     '#e2725b',
-  primaryLight:'#f2a679',
-  accent:      '#2a9d8f',
-  success:     '#6fae66',
-  warning:     '#f4a259',
-  danger:      '#e15554',
-  textMuted:   '#a89f92',
-  border:      '#34302a',
+  primary:     '#2563eb',
+  primaryLight:'#93c5fd',
+  accent:      '#059669',
+  success:     '#16a34a',
+  warning:     '#d97706',
+  danger:      '#dc2626',
+  textMuted:   '#94a3b8',
+  border:      '#243044',
   bgCard:      '#211d18',
   text:        '#f5ece3',
 };

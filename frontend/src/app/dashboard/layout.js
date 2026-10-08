@@ -4,6 +4,9 @@ import { useRouter, usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/authStore';
+import { useThemeStore } from '@/store/themeStore';
+import { useSocket } from '@/store/socketProvider';
+import LiveDot from '@/components/ui/LiveDot';
 
 import {
   HiOutlineHome,
@@ -23,6 +26,9 @@ import {
   HiOutlineUserCircle,
   HiOutlineSquares2X2,
   HiOutlineClipboardDocumentList,
+  HiOutlineMagnifyingGlass,
+  HiOutlineSun,
+  HiOutlineMoon,
 } from 'react-icons/hi2';
 
 /* ── Role-based sidebar menus ─────────────────────────────────────────────── */
@@ -86,7 +92,7 @@ function NavItem({ item, isActive, collapsed, onClick }) {
         <span style={{
           marginLeft: 'auto', fontSize: 10, fontWeight: 700,
           padding: '2px 6px', borderRadius: 6,
-          background: 'rgba(226,114,91,0.2)', color: '#f2a679',
+          background: 'rgba(37,99,235,0.2)', color: '#93c5fd',
           letterSpacing: 0.5,
         }}>
           {item.badge}
@@ -104,9 +110,9 @@ function SidebarContent({ collapsed, menus, pathname, user, onClose, onLogout })
       <div style={{
         padding: '18px 14px',
         display: 'flex', alignItems: 'center', gap: 10,
-        borderBottom: '1px solid rgba(226,114,91,0.08)',
+        borderBottom: '1px solid rgba(37,99,235,0.08)',
       }}>
-        <div className="icon-box icon-box-sm" style={{ background: 'linear-gradient(135deg, #e2725b, #2a9d8f)', flexShrink: 0 }}>
+        <div className="icon-box icon-box-sm" style={{ background: 'linear-gradient(135deg, #2563eb, #059669)', flexShrink: 0 }}>
           <HiOutlineCpuChip size={18} color="white" />
         </div>
         <AnimatePresence>
@@ -117,7 +123,7 @@ function SidebarContent({ collapsed, menus, pathname, user, onClose, onLogout })
               <span style={{ fontSize: 18, fontWeight: 800, whiteSpace: 'nowrap' }} className="gradient-text">
                 SHMS
               </span>
-              <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(42,157,143,0.18)', color: '#5fc9ba', fontWeight: 700, letterSpacing: 0.5 }}>
+              <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(5,150,105,0.18)', color: '#34d399', fontWeight: 700, letterSpacing: 0.5 }}>
                 v2.0
               </span>
             </motion.div>
@@ -142,7 +148,7 @@ function SidebarContent({ collapsed, menus, pathname, user, onClose, onLogout })
             <div style={{
               fontSize: 10, fontWeight: 700, letterSpacing: 1, color: 'var(--color-primary)',
               textTransform: 'uppercase', padding: '4px 10px',
-              background: 'rgba(226,114,91,0.12)', borderRadius: 6,
+              background: 'rgba(37,99,235,0.12)', borderRadius: 6,
               display: 'inline-block',
             }}>
               {user?.role?.replace('_', ' ')}
@@ -158,7 +164,7 @@ function SidebarContent({ collapsed, menus, pathname, user, onClose, onLogout })
         ))}
 
         {/* Divider + Profile link */}
-        <div style={{ borderTop: '1px solid rgba(226,114,91,0.08)', margin: '8px 0' }} />
+        <div style={{ borderTop: '1px solid rgba(37,99,235,0.08)', margin: '8px 0' }} />
         <NavItem
           item={{ href: '/dashboard/profile', icon: HiOutlineUserCircle, label: 'Profile', badge: null }}
           isActive={pathname === '/dashboard/profile'}
@@ -168,10 +174,10 @@ function SidebarContent({ collapsed, menus, pathname, user, onClose, onLogout })
       </nav>
 
       {/* User & Logout */}
-      <div style={{ padding: '12px 8px', borderTop: '1px solid rgba(226,114,91,0.08)' }}>
+      <div style={{ padding: '12px 8px', borderTop: '1px solid rgba(37,99,235,0.08)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, marginBottom: 4 }}>
           <div className="icon-box icon-box-sm"
-            style={{ background: 'linear-gradient(135deg, #e2725b, #2a9d8f)', fontWeight: 700, color: 'white', fontSize: 13 }}>
+            style={{ background: 'linear-gradient(135deg, #2563eb, #059669)', fontWeight: 700, color: 'white', fontSize: 13 }}>
             {user?.firstName?.[0]}{user?.lastName?.[0]}
           </div>
           <AnimatePresence>
@@ -189,7 +195,7 @@ function SidebarContent({ collapsed, menus, pathname, user, onClose, onLogout })
         </div>
 
         <button onClick={onLogout} className="nav-link"
-          style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', color: '#e15554' }}
+          style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', color: '#dc2626' }}
           title={collapsed ? 'Logout' : undefined}
         >
           <HiOutlineArrowRightOnRectangle size={20} style={{ minWidth: 20, flexShrink: 0 }} />
@@ -214,6 +220,10 @@ export default function DashboardLayout({ children }) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen,  setMobileOpen]  = useState(false);
+  const [query, setQuery] = useState('');
+  const theme = useThemeStore((s) => s.theme);
+  const toggleTheme = useThemeStore((s) => s.toggle);
+  const socketState = useSocket() || {};
 
   useEffect(() => {
     checkAuth().then((ok) => { if (!ok) router.push('/login'); });
@@ -231,6 +241,13 @@ export default function DashboardLayout({ children }) {
 
   const menus        = roleMenus[user?.role] || roleMenus.STUDENT;
   const handleLogout = async () => { await logout(); router.push('/login'); };
+  const submitSearch = (e) => {
+    e.preventDefault();
+    const q = query.trim();
+    if (user?.role === 'SUPER_ADMIN') router.push(`/dashboard/admin/rooms?search=${encodeURIComponent(q)}`);
+    else if (user?.role === 'WARDEN') router.push('/dashboard/warden/rooms');
+    else router.push('/dashboard/student/room');
+  };
 
   /* Role-specific aurora modifier class */
   const auroraModifier = {
@@ -256,7 +273,7 @@ export default function DashboardLayout({ children }) {
         style={{
           position: 'fixed', left: 0, top: 0, bottom: 0, zIndex: 40,
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
-          borderRight: '1px solid rgba(226,114,91,0.08)',
+          borderRight: '1px solid rgba(37,99,235,0.08)',
         }}
       >
         <SidebarContent collapsed={!sidebarOpen} menus={menus} pathname={pathname} user={user} onClose={null} onLogout={handleLogout} />
@@ -272,7 +289,7 @@ export default function DashboardLayout({ children }) {
             style={{
               position: 'fixed', left: 0, top: 0, bottom: 0, zIndex: 40,
               width: 260, display: 'flex', flexDirection: 'column', overflow: 'hidden',
-              borderRight: '1px solid rgba(226,114,91,0.08)',
+              borderRight: '1px solid rgba(37,99,235,0.08)',
             }}
           >
             <SidebarContent collapsed={false} menus={menus} pathname={pathname} user={user}
@@ -290,67 +307,77 @@ export default function DashboardLayout({ children }) {
             position: 'sticky', top: 0, zIndex: 30,
             padding: '12px 24px',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            borderBottom: '1px solid rgba(226,114,91,0.06)',
+            borderBottom: '1px solid rgba(37,99,235,0.06)',
             marginLeft: sidebarOpen ? 260 : 72,
             transition: 'margin-left 0.28s ease',
           }}
         >
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="touch-btn"
-            style={{ background: 'rgba(226,114,91,0.06)', border: '1px solid rgba(226,114,91,0.1)', borderRadius: 10, cursor: 'pointer', color: 'var(--color-text-muted)' }}>
+            style={{ background: 'rgba(37,99,235,0.06)', border: '1px solid rgba(37,99,235,0.1)', borderRadius: 10, cursor: 'pointer', color: 'var(--color-text-muted)' }}>
             <HiOutlineBars3 size={20} />
           </button>
 
-          {/* Breadcrumb */}
-          <div style={{ flex: 1, marginLeft: 16, fontSize: 13, color: 'var(--color-text-muted)' }}>
-            {pathname.split('/').filter(Boolean).map((seg, i, arr) => (
-              <span key={i}>
-                <span style={{ color: i === arr.length - 1 ? 'var(--color-text)' : 'var(--color-text-muted)', textTransform: 'capitalize' }}>
-                  {seg.replace('-', ' ')}
-                </span>
-                {i < arr.length - 1 && <span style={{ margin: '0 6px' }}>›</span>}
-              </span>
-            ))}
-          </div>
+          <form onSubmit={submitSearch} className="nav-search" role="search">
+            <HiOutlineMagnifyingGlass size={16} color="var(--color-text-muted)" aria-hidden="true" />
+            <input
+              className="input-field"
+              aria-label="Search rooms"
+              placeholder={user?.role === 'STUDENT' ? 'Open my room' : 'Search rooms'}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              style={{ height: 40, padding: '8px 12px' }}
+            />
+          </form>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button className="touch-btn"
-              style={{ background: 'rgba(226,114,91,0.06)', border: '1px solid rgba(226,114,91,0.1)', borderRadius: 10, cursor: 'pointer', color: 'var(--color-text-muted)', position: 'relative' }}>
+            <LiveDot connected={Boolean(socketState.isConnected)} />
+            <button type="button" onClick={toggleTheme} className="touch-btn" aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+              style={{ background: 'rgba(37,99,235,0.06)', border: '1px solid rgba(37,99,235,0.1)', borderRadius: 10, cursor: 'pointer', color: 'var(--color-text-muted)' }}>
+              {theme === 'light' ? <HiOutlineMoon size={18} /> : <HiOutlineSun size={18} />}
+            </button>
+            <button type="button" className="touch-btn" aria-label="Notifications" onClick={() => socketState.clearUnread?.()}
+              style={{ background: 'rgba(37,99,235,0.06)', border: '1px solid rgba(37,99,235,0.1)', borderRadius: 10, cursor: 'pointer', color: 'var(--color-text-muted)', position: 'relative' }}>
               <HiOutlineBell size={20} />
-              <span style={{ position: 'absolute', top: 6, right: 6, width: 8, height: 8, borderRadius: '50%', background: '#e15554', border: '2px solid var(--color-bg)' }} />
+              {socketState.unreadCount > 0 && (
+                <span className="badge-ping" style={{ position: 'absolute', top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 99, background: '#dc2626', color: '#fff', fontSize: 10, fontWeight: 800, display: 'grid', placeItems: 'center' }}>
+                  {socketState.unreadCount}
+                </span>
+              )}
             </button>
 
-            <Link href="/dashboard/profile">
+            <Link href="/dashboard/profile" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', color: 'inherit' }}>
               <div className="icon-box icon-box-sm"
-                style={{ background: 'linear-gradient(135deg, #e2725b, #2a9d8f)', fontWeight: 700, color: 'white', fontSize: 13, cursor: 'pointer', flexShrink: 0 }}>
+                style={{ background: 'linear-gradient(135deg, #1d4ed8, #059669)', fontWeight: 700, color: 'white', fontSize: 13, cursor: 'pointer', flexShrink: 0 }}>
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
               </div>
+              <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{user?.role?.replace('_', ' ')}</span>
             </Link>
           </div>
         </header>
 
         {/* Mobile Top Bar */}
         <header className="glass mobile-topbar"
-          style={{ zIndex: 36, borderBottom: '1px solid rgba(226,114,91,0.06)' }}
+          style={{ zIndex: 36, borderBottom: '1px solid rgba(37,99,235,0.06)' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button onClick={() => setMobileOpen(true)} className="touch-btn"
-              style={{ background: 'rgba(226,114,91,0.06)', border: '1px solid rgba(226,114,91,0.1)', borderRadius: 10, cursor: 'pointer', color: 'var(--color-text-muted)' }}>
+              style={{ background: 'rgba(37,99,235,0.06)', border: '1px solid rgba(37,99,235,0.1)', borderRadius: 10, cursor: 'pointer', color: 'var(--color-text-muted)' }}>
               <HiOutlineBars3 size={20} />
             </button>
-            <div className="icon-box icon-box-sm" style={{ background: 'linear-gradient(135deg, #e2725b, #2a9d8f)' }}>
+            <div className="icon-box icon-box-sm" style={{ background: 'linear-gradient(135deg, #2563eb, #059669)' }}>
               <HiOutlineCpuChip size={16} color="white" />
             </div>
             <span style={{ fontWeight: 800, fontSize: 16 }} className="gradient-text">SHMS</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button className="touch-btn"
-              style={{ background: 'rgba(226,114,91,0.06)', border: '1px solid rgba(226,114,91,0.1)', borderRadius: 10, cursor: 'pointer', color: 'var(--color-text-muted)', position: 'relative' }}>
+              style={{ background: 'rgba(37,99,235,0.06)', border: '1px solid rgba(37,99,235,0.1)', borderRadius: 10, cursor: 'pointer', color: 'var(--color-text-muted)', position: 'relative' }}>
               <HiOutlineBell size={20} />
-              <span style={{ position: 'absolute', top: 6, right: 6, width: 7, height: 7, borderRadius: '50%', background: '#e15554', border: '2px solid var(--color-bg)' }} />
+              <span style={{ position: 'absolute', top: 6, right: 6, width: 7, height: 7, borderRadius: '50%', background: '#dc2626', border: '2px solid var(--color-bg)' }} />
             </button>
             <Link href="/dashboard/profile">
               <div className="icon-box icon-box-sm"
-                style={{ background: 'linear-gradient(135deg, #e2725b, #2a9d8f)', fontWeight: 700, color: 'white', fontSize: 12 }}>
+                style={{ background: 'linear-gradient(135deg, #2563eb, #059669)', fontWeight: 700, color: 'white', fontSize: 12 }}>
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
               </div>
             </Link>

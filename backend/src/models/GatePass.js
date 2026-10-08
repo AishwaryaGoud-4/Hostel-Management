@@ -42,7 +42,6 @@ const gatePassSchema = new mongoose.Schema(
 );
 
 gatePassSchema.index({ studentId: 1 });
-gatePassSchema.index({ passId: 1 });
 gatePassSchema.index({ status: 1 });
 
 module.exports = mongoose.model('GatePass', gatePassSchema);

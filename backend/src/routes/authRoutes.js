@@ -6,6 +6,7 @@ const { requireAny, requireAdmin } = require('../middleware/auth');
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: { success: false, message: 'Too many attempts. Try again later.' } });
 
 router.post('/register', authLimiter, auth.register);
+router.post('/students', requireAdmin, auth.createStudent);
 router.post('/login', authLimiter, auth.login);
 router.post('/refresh', auth.refreshToken);
 router.post('/logout', requireAny, auth.logout);

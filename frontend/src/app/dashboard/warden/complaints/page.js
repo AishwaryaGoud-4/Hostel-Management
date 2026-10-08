@@ -15,7 +15,7 @@ const STATUS_CLASSES = {
   OPEN: 'badge-open', IN_PROGRESS: 'badge-progress',
   RESOLVED: 'badge-resolved', CLOSED: 'badge-resolved', ESCALATED: 'badge-critical',
 };
-const PRIORITY_COLORS = { LOW: '#6fae66', MEDIUM: '#f4a259', HIGH: '#e15554', CRITICAL: '#dc2626' };
+const PRIORITY_COLORS = { LOW: '#16a34a', MEDIUM: '#d97706', HIGH: '#dc2626', CRITICAL: '#dc2626' };
 
 export default function WardenComplaintsPage() {
   const [complaints, setComplaints] = useState([]);
@@ -128,7 +128,7 @@ export default function WardenComplaintsPage() {
             <motion.div key={c._id}
               initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}
               className="glass card-hover"
-              style={{ padding: 20, borderRadius: 14, cursor: 'pointer', borderLeft: `3px solid ${PRIORITY_COLORS[c.priority] || '#a89f92'}` }}
+              style={{ padding: 20, borderRadius: 14, cursor: 'pointer', borderLeft: `3px solid ${PRIORITY_COLORS[c.priority] || '#94a3b8'}` }}
               onClick={() => { setSelected(c); setStatusUpdate({ status: '', note: '' }); }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ flex: 1 }}>
@@ -139,7 +139,7 @@ export default function WardenComplaintsPage() {
                       {c.priority}
                     </span>
                     <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 6,
-                      background: 'rgba(226,114,91,0.1)', color: 'var(--color-primary-light)' }}>
+                      background: 'rgba(37,99,235,0.1)', color: 'var(--color-primary-light)' }}>
                       {c.category}
                     </span>
                     {c.aiClassification?.isEmergency && (

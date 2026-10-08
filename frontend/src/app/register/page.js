@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/lib/api';
+import { extractRoomFromRegisterResponse } from '@/lib/roomResponse';
 import {
   HiOutlineEnvelope,
   HiOutlineLockClosed,
@@ -115,24 +116,50 @@ export default function RegisterPage() {
       };
 
       const res = await api.post('/auth/register', payload);
-      if (!res.success) throw new Error(res.message || 'Registration failed');
+      if (!res?.success) {
+        toast.error(res?.message || 'Registration failed', { duration: 5000 });
+        return;
+      }
 
-      const user = res.data.user;
-      api.setToken(res.data.accessToken);
-      useAuthStore.setState({ user, isAuthenticated: true, isLoading: false, error: null });
+      const roomInfo = extractRoomFromRegisterResponse(res);
+      const displayName =
+        res.student?.name || res.data?.student?.name || `${firstName} ${lastName}`.trim();
+      const displayCourse = res.student?.course || res.data?.student?.course || course;
 
-      const room = user?.studentProfile?.roomId;
-      const roomNumber = typeof room === 'object' ? room?.roomNumber : null;
-      const capacity = typeof room === 'object' ? room?.capacity : null;
+      if (!roomInfo?.roomId) {
+        setRegistrationSuccess({
+          partial: true,
+          name: displayName,
+          course: displayCourse,
+        });
+        toast.error(
+          `Account may have been created, but no ${displayCourse} room was assigned. Contact the hostel administrator.`,
+          { duration: 6000 }
+        );
+        return;
+      }
+
+      const token = res.data?.accessToken;
+      const user = res.data?.user;
+      if (token) api.setToken(token);
+      if (user && token) {
+        useAuthStore.setState({ user, isAuthenticated: true, isLoading: false, error: null });
+      }
 
       setRegistrationSuccess({
-        name: `${firstName} ${lastName}`.trim(),
-        course,
-        room: roomNumber || '—',
-        capacity: capacity ?? '—',
+        partial: false,
+        name: displayName,
+        course: displayCourse,
+        room: roomInfo.roomId,
+        roomNumber: roomInfo.roomNumber,
+        status: roomInfo.status,
+        capacity: roomInfo.capacity,
+        occupied: roomInfo.occupied,
+        availableBeds: roomInfo.availableBeds,
       });
     } catch (err) {
-      toast.error(err.message || 'Registration failed', { duration: 5000 });
+      console.error('Registration error:', err);
+      toast.error(err?.message || 'Registration failed', { duration: 5000 });
     } finally {
       setLoading(false);
     }
@@ -177,7 +204,7 @@ export default function RegisterPage() {
                 textAlign: 'center',
                 padding: '28px 20px',
                 borderRadius: 20,
-                background: 'linear-gradient(145deg, rgba(111,174,102,0.12), rgba(42,157,143,0.08))',
+                background: 'linear-gradient(145deg, rgba(111,174,102,0.12), rgba(5,150,105,0.08))',
                 border: '1px solid rgba(111,174,102,0.25)',
               }}
             >
@@ -203,7 +230,7 @@ export default function RegisterPage() {
                   <p style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>{registrationSuccess.course}</p>
                 </div>
                 <div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', letterSpacing: 0.5 }}>YOUR ROOM</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', letterSpacing: 0.5 }}>ROOM ID</span>
                   <motion.p
                     initial={{ opacity: 0, x: -8 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -212,6 +239,10 @@ export default function RegisterPage() {
                   >
                     {registrationSuccess.room}
                   </motion.p>
+                </div>
+                <div>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', letterSpacing: 0.5 }}>ROOM NUMBER</span>
+                  <p style={{ fontSize: 16, marginTop: 4 }}>{registrationSuccess.roomNumber || '—'}</p>
                 </div>
                 <div>
                   <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', letterSpacing: 0.5 }}>ROOM CAPACITY</span>
@@ -301,11 +332,11 @@ export default function RegisterPage() {
                           borderRadius: 14,
                           border: selected ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
                           background: selected
-                            ? 'linear-gradient(145deg, rgba(226,114,91,0.2), rgba(42,157,143,0.12))'
+                            ? 'linear-gradient(145deg, rgba(37,99,235,0.2), rgba(5,150,105,0.12))'
                             : 'rgba(255,255,255,0.03)',
                           cursor: 'pointer',
                           transition: 'all 0.2s ease',
-                          boxShadow: selected ? '0 4px 20px rgba(226,114,91,0.15)' : 'none',
+                          boxShadow: selected ? '0 4px 20px rgba(37,99,235,0.15)' : 'none',
                           transform: selected ? 'translateY(-1px)' : 'none',
                         }}
                       >

@@ -159,9 +159,9 @@ export default function WardenRoomsPage() {
                     <div key={bi} style={{
                       width: 32, height: 32, borderRadius: 8, fontSize: 11, fontWeight: 700,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      background: bed.status === 'OCCUPIED' ? 'rgba(226,114,91,0.2)' : 'rgba(42,157,143,0.2)',
+                      background: bed.status === 'OCCUPIED' ? 'rgba(37,99,235,0.2)' : 'rgba(5,150,105,0.2)',
                       color: bed.status === 'OCCUPIED' ? 'var(--color-primary-light)' : 'var(--color-accent-light)',
-                      border: `1px solid ${bed.status === 'OCCUPIED' ? 'rgba(226,114,91,0.3)' : 'rgba(42,157,143,0.3)'}`,
+                      border: `1px solid ${bed.status === 'OCCUPIED' ? 'rgba(37,99,235,0.3)' : 'rgba(5,150,105,0.3)'}`,
                     }}>
                       {bi + 1}
                     </div>
@@ -217,7 +217,7 @@ export default function WardenRoomsPage() {
                       </span>
                       {bed.status === 'OCCUPIED' && (
                         <button onClick={() => deallocate(selectedRoom._id, bi)}
-                          style={{ background: 'rgba(225,85,84,0.15)', border: '1px solid rgba(225,85,84,0.3)', borderRadius: 8, padding: '4px 10px', fontSize: 11, fontWeight: 600, color: '#e15554', cursor: 'pointer' }}>
+                          style={{ background: 'rgba(225,85,84,0.15)', border: '1px solid rgba(225,85,84,0.3)', borderRadius: 8, padding: '4px 10px', fontSize: 11, fontWeight: 600, color: '#dc2626', cursor: 'pointer' }}>
                           Remove
                         </button>
                       )}

@@ -26,6 +26,9 @@ const userSchema = new mongoose.Schema(
       department: String,
       hostelId: { type: mongoose.Schema.Types.ObjectId, ref: 'Hostel' },
       roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room' },
+      roomCode: { type: String, trim: true },
+      roomNumber: { type: String, trim: true },
+      roomAssignedAt: Date,
       guardianName: String,
       guardianPhone: String,
       address: String,
@@ -56,8 +59,6 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-userSchema.index({ email: 1 });
 userSchema.index({ role: 1 });
-userSchema.index({ 'studentProfile.rollNumber': 1 });
 
 module.exports = mongoose.model('User', userSchema);

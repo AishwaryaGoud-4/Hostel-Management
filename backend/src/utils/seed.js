@@ -102,18 +102,19 @@ const seed = async () => {
     const courseCodes = ['CSE', 'ECE', 'EEE', 'BSC', 'BBA'];
     const courseRooms = [];
     for (const c of courseCodes) {
-      for (let n = 1; n <= 4; n++) {
+      for (let n = 1; n <= 20; n++) {
         courseRooms.push({
           hostelId: hostel1._id,
           course: c,
-          roomNumber: `${c}-${100 + n}`,
-          floor: 0,
+          roomNumber: `${c}${String(n).padStart(3, '0')}`,
+          block: 'A',
+          floor: 1,
           type: 'DORMITORY',
           status: 'AVAILABLE',
           capacity: 4,
           occupants: [],
           monthlyRent: 5000,
-          amenities: ['Bed', 'Desk', 'Wardrobe'],
+          amenities: ['Bed', 'Wi-Fi', 'Electricity', 'Study Table', 'Cupboard', 'Fan', 'Water'],
         });
       }
     }

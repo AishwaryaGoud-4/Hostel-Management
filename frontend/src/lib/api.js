@@ -41,7 +41,8 @@ class ApiClient {
         config.headers.Authorization = `Bearer ${this.accessToken}`;
         try {
           const retryResponse = await fetch(url, config);
-          return retryResponse.json();
+          const retryBody = await retryResponse.json();
+          return { ...retryBody, httpStatus: retryResponse.status };
         } catch (retryError) {
           return { success: false, message: 'Network error during retry', data: null };
         }
@@ -54,9 +55,10 @@ class ApiClient {
     }
 
     try {
-      return await response.json();
+      const body = await response.json();
+      return { ...body, httpStatus: response.status };
     } catch (jsonError) {
-      return { success: false, message: 'Invalid response from server', data: null };
+      return { success: false, message: 'Invalid response from server', data: null, httpStatus: response.status };
     }
   }
 

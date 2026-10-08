@@ -1,274 +1,328 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import {
-  HiOutlinePlusCircle,
-  HiOutlineTrash,
-  HiOutlineFunnel,
-  HiOutlineUsers,
-  HiOutlineXMark,
-} from 'react-icons/hi2';
-import api from '@/lib/api';
+
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
+import api from '@/lib/api';
+import { useSocket } from '@/store/socketProvider';
+import PageHeader from '@/components/ui/PageHeader';
+import RoomCard from '@/components/ui/RoomCard';
+import Modal from '@/components/ui/Modal';
+import EmptyState from '@/components/ui/EmptyState';
+import { CardSkeletonGrid } from '@/components/ui/LoadingSkeleton';
+import StatCard from '@/components/ui/StatCard';
+import StatusBadge from '@/components/ui/StatusBadge';
 
 const COURSES = ['CSE', 'ECE', 'EEE', 'BSC', 'BBA'];
 
-function OccupancyBar({ occupied, capacity }) {
-  const pct = capacity > 0 ? Math.min(100, (occupied / capacity) * 100) : 0;
-  const full = occupied >= capacity;
-  return (
-    <div style={{
-      height: 8, borderRadius: 999, background: 'var(--color-border)', overflow: 'hidden', marginTop: 12,
-    }}>
-      <motion.div
-        initial={{ width: 0 }}
-        animate={{ width: `${pct}%` }}
-        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-        style={{
-          height: '100%',
-          borderRadius: 999,
-          background: full
-            ? 'linear-gradient(90deg, var(--color-danger), #c44)'
-            : 'linear-gradient(90deg, var(--color-primary), var(--color-accent))',
-        }}
-      />
-    </div>
-  );
-}
-
-function RoomCardSkeleton() {
-  return (
-    <div className="glass" style={{ padding: 20, borderRadius: 16, minHeight: 200 }}>
-      <div className="skeleton" style={{ height: 20, width: '60%', marginBottom: 12 }} />
-      <div className="skeleton" style={{ height: 14, width: '30%', marginBottom: 24 }} />
-      <div className="skeleton" style={{ height: 8, width: '100%' }} />
-    </div>
-  );
-}
+const fieldStyle = { display: 'flex', flexDirection: 'column', gap: 6 };
+const labelStyle = { fontSize: 11, fontWeight: 700, letterSpacing: 0.4, color: 'var(--color-text-muted)' };
 
 export default function AdminCourseRoomsPage() {
+  return (
+    <Suspense fallback={<CardSkeletonGrid />}>
+      <AdminRoomsInner />
+    </Suspense>
+  );
+}
+
+function AdminRoomsInner() {
+  const params = useSearchParams();
+  const { socket } = useSocket() || {};
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [courseFilter, setCourseFilter] = useState('ALL');
-  const [form, setForm] = useState({ course: 'CSE', roomNumber: '', capacity: 4 });
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const searchFromUrl = params.get('search') || '';
+  const [search, setSearch] = useState(searchFromUrl);
+  const [trackedUrl, setTrackedUrl] = useState(searchFromUrl);
+  if (searchFromUrl !== trackedUrl) {
+    setTrackedUrl(searchFromUrl);
+    setSearch(searchFromUrl);
+  }
+  const [form, setForm] = useState({ course: 'CSE', roomId: '', roomNo: '', capacity: 4 });
   const [submitting, setSubmitting] = useState(false);
-  const [studentsModal, setStudentsModal] = useState(null);
+  const [liveId, setLiveId] = useState(null);
+  const [viewRoom, setViewRoom] = useState(null);
+  const [editRoom, setEditRoom] = useState(null);
+  const [allocOpen, setAllocOpen] = useState(false);
+  const [students, setStudents] = useState([]);
+  const [alloc, setAlloc] = useState({ studentId: '', roomId: '', mode: 'allocate' });
 
   const load = useCallback(async () => {
     setLoading(true);
-    const qs = courseFilter !== 'ALL' ? `?course=${courseFilter}` : '';
-    const res = await api.get(`/rooms${qs}`);
+    const qs = new URLSearchParams();
+    if (courseFilter !== 'ALL') qs.set('course', courseFilter);
+    if (statusFilter !== 'ALL') qs.set('status', statusFilter);
+    if (search.trim()) qs.set('search', search.trim());
+    const res = await api.get(`/rooms${qs.toString() ? `?${qs}` : ''}`);
     if (res.success) setRooms(res.data?.rooms || []);
     else toast.error(res.message || 'Failed to load rooms');
     setLoading(false);
-  }, [courseFilter]);
+  }, [courseFilter, statusFilter, search]);
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (!socket) return undefined;
+    const onRoom = (payload) => {
+      const id = payload?.room?._id || payload?.room?.roomId;
+      setLiveId(id || 'live');
+      load();
+      window.setTimeout(() => setLiveId(null), 1200);
+    };
+    socket.on('room:updated', onRoom);
+    socket.on('room:allocated', onRoom);
+    socket.on('room:vacated', onRoom);
+    return () => {
+      socket.off('room:updated', onRoom);
+      socket.off('room:allocated', onRoom);
+      socket.off('room:vacated', onRoom);
+    };
+  }, [socket, load]);
+
+  const stats = useMemo(() => {
+    const full = rooms.filter((r) => (r.statusLabel || r.displayStatus) === 'Full').length;
+    const beds = rooms.reduce((sum, r) => sum + (r.availableBeds ?? 0), 0);
+    return { total: rooms.length, full, beds };
+  }, [rooms]);
+
   const createRoom = async (e) => {
     e.preventDefault();
-    if (!form.roomNumber.trim()) return toast.error('Enter room number');
     setSubmitting(true);
-    try {
-      const res = await api.post('/rooms', {
-        course: form.course,
-        roomNumber: form.roomNumber.trim(),
-        capacity: Number(form.capacity),
-      });
-      if (res.success) {
-        toast.success('Room created');
-        setForm((f) => ({ ...f, roomNumber: '' }));
-        load();
-      } else toast.error(res.message || 'Failed');
-    } catch {
-      toast.error('Server error');
-    }
+    const body = { course: form.course, capacity: Number(form.capacity) };
+    if (form.roomId.trim()) body.roomId = form.roomId.trim().toUpperCase();
+    if (form.roomNo.trim()) body.roomNo = form.roomNo.trim();
+    const res = await api.post('/rooms', body);
     setSubmitting(false);
+    if (res.success) {
+      toast.success(`${res.data?.room?.roomId || 'Room'} created`);
+      setForm((f) => ({ ...f, roomId: '', roomNo: '' }));
+      load();
+    } else toast.error(res.message || 'Could not create room');
   };
 
-  const removeRoom = async (id) => {
-    if (!confirm('Delete this room?')) return;
-    const res = await api.delete(`/rooms/${id}`);
+  const saveEdit = async (e) => {
+    e.preventDefault();
+    const res = await api.put(`/rooms/${editRoom._id}`, {
+      roomNo: editRoom.roomNo,
+      capacity: Number(editRoom.capacity),
+      roomId: editRoom.roomId,
+    });
+    if (res.success) {
+      toast.success('Room updated');
+      setEditRoom(null);
+      load();
+    } else toast.error(res.message || 'Update failed');
+  };
+
+  const removeRoom = async (room) => {
+    if (!window.confirm(`Delete ${room.roomId || room.roomNumber}?`)) return;
+    const res = await api.delete(`/rooms/${room._id}`);
     if (res.success) {
       toast.success('Room deleted');
       load();
-    } else toast.error(res.message || 'Failed');
+    } else toast.error(res.message || 'Could not delete room');
   };
+
+  const openAllocate = async (presetRoom) => {
+    const course = presetRoom?.course || (courseFilter !== 'ALL' ? courseFilter : 'CSE');
+    const res = await api.get(`/auth/users?role=STUDENT&course=${course}&limit=100`);
+    setStudents(res.data?.users || []);
+    setAlloc({
+      studentId: '',
+      roomId: presetRoom?._id || '',
+      mode: 'allocate',
+      course,
+    });
+    setAllocOpen(true);
+  };
+
+  const submitAlloc = async (e) => {
+    e.preventDefault();
+    const endpoint = alloc.mode === 'change' ? '/rooms/change' : '/rooms/allocate';
+    const res = await api.post(endpoint, { studentId: alloc.studentId, roomId: alloc.roomId });
+    if (res.success) {
+      toast.success(res.message || 'Room updated');
+      setAllocOpen(false);
+      setViewRoom(null);
+      load();
+    } else toast.error(res.message || 'Allocation failed');
+  };
+
+  const vacate = async (studentId) => {
+    const res = await api.post('/rooms/vacate', { studentId });
+    if (res.success) {
+      toast.success('Student removed from room');
+      setViewRoom(null);
+      load();
+    } else toast.error(res.message || 'Could not vacate room');
+  };
+
+  const courseStudents = students.filter((s) => !alloc.course || s.studentProfile?.course === alloc.course);
+  const targetRooms = rooms.filter((r) => !alloc.course || r.course === alloc.course);
 
   return (
     <div>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 800 }}>Room <span className="gradient-text">Management</span></h1>
-        <p style={{ color: 'var(--color-text-muted)', fontSize: 14, marginTop: 4 }}>
-          Create and manage course rooms. Students are auto-assigned on registration.
-        </p>
+      <PageHeader
+        title="Room management"
+        subtitle="Course rooms for CSE, ECE, EEE, BSC, and BBA. New students are placed in a random available room for their course."
+      />
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 20 }}>
+        <StatCard label="Rooms shown" value={stats.total} delay={0} />
+        <StatCard label="Full rooms" value={stats.full} delay={0.05} />
+        <StatCard label="Available beds" value={stats.beds} delay={0.1} />
       </div>
 
-      <motion.div className="glass" style={{ padding: 24, borderRadius: 16, marginBottom: 24 }}
-        initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
-        <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>Create room</h3>
-        <form onSubmit={createRoom} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, alignItems: 'end' }}>
+      <form onSubmit={createRoom} className="glass" style={{ padding: 20, borderRadius: 16, marginBottom: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, alignItems: 'end' }}>
+        <label style={fieldStyle}>
+          <span style={labelStyle}>COURSE</span>
+          <select className="input-field" aria-label="Course" value={form.course} onChange={(e) => setForm({ ...form, course: e.target.value })}>
+            {COURSES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </label>
+        <label style={fieldStyle}>
+          <span style={labelStyle}>ROOM ID</span>
+          <input className="input-field" aria-label="Room ID" placeholder="Auto CSE001" value={form.roomId} onChange={(e) => setForm({ ...form, roomId: e.target.value })} />
+        </label>
+        <label style={fieldStyle}>
+          <span style={labelStyle}>ROOM NUMBER</span>
+          <input className="input-field" aria-label="Room number" placeholder="Auto 101" value={form.roomNo} onChange={(e) => setForm({ ...form, roomNo: e.target.value })} />
+        </label>
+        <label style={fieldStyle}>
+          <span style={labelStyle}>CAPACITY</span>
+          <input className="input-field" aria-label="Capacity" type="number" min={1} required value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} />
+        </label>
+        <button className="btn-primary" type="submit" disabled={submitting}>{submitting ? 'Creating…' : 'Create room'}</button>
+      </form>
+
+      <div className="glass" style={{ padding: 16, borderRadius: 16, marginBottom: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input className="input-field" aria-label="Search rooms" placeholder="Search Room ID or number" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 260 }} />
+        <select className="input-field" aria-label="Filter course" value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)} style={{ maxWidth: 140 }}>
+          <option value="ALL">All courses</option>
+          {COURSES.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select className="input-field" aria-label="Filter status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ maxWidth: 160 }}>
+          <option value="ALL">All statuses</option>
+          <option value="Available">Available</option>
+          <option value="Full">Full</option>
+        </select>
+        <button type="button" className="btn-secondary" onClick={() => openAllocate(null)}>Allocate or change</button>
+      </div>
+
+      {loading ? <CardSkeletonGrid /> : rooms.length === 0 ? (
+        <EmptyState title="No rooms match" message="Create a course room or clear the search and filters." />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
+          {rooms.map((room, i) => (
+            <RoomCard
+              key={room._id}
+              room={room}
+              delay={Math.min(i, 8) * 0.04}
+              live={liveId === room._id || liveId === room.roomId}
+              onView={() => setViewRoom(room)}
+              onEdit={() => setEditRoom({ ...room, roomNo: room.roomNo || '' })}
+              onDelete={() => removeRoom(room)}
+              onAllocate={() => openAllocate(room)}
+            />
+          ))}
+        </div>
+      )}
+
+      <Modal open={Boolean(viewRoom)} title={viewRoom?.roomId || 'Room'} subtitle={viewRoom ? `${viewRoom.course} · Room ${viewRoom.roomNo || viewRoom.roomNumber}` : ''} onClose={() => setViewRoom(null)}>
+        {viewRoom && (
           <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', display: 'block', marginBottom: 6 }}>COURSE</label>
-            <select className="input-field" value={form.course} onChange={(e) => setForm({ ...form, course: e.target.value })}>
+            <p style={{ marginBottom: 12, fontSize: 14 }}>
+              <StatusBadge status={viewRoom.statusLabel || viewRoom.displayStatus} />
+              <span style={{ marginLeft: 8, color: 'var(--color-text-muted)' }}>
+                {viewRoom.occupiedBeds ?? viewRoom.occupied ?? 0} occupied · {viewRoom.availableBeds ?? 0} available
+              </span>
+            </p>
+            {(viewRoom.occupants || []).length === 0 ? (
+              <p style={{ color: 'var(--color-text-muted)' }}>No students assigned.</p>
+            ) : (
+              <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {viewRoom.occupants.map((s) => (
+                  <li key={s._id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', padding: 12, borderRadius: 12, border: '1px solid var(--color-border)' }}>
+                    <span>
+                      <strong>{s.firstName} {s.lastName}</strong>
+                      <span style={{ display: 'block', fontSize: 12, color: 'var(--color-text-muted)' }}>{s.studentProfile?.course} · {s.email}</span>
+                    </span>
+                    <button type="button" className="btn-secondary" style={{ padding: '8px 10px' }} onClick={() => vacate(s._id)}>Vacate</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={Boolean(editRoom)} title="Edit room" subtitle="Room number and capacity" onClose={() => setEditRoom(null)}>
+        {editRoom && (
+          <form onSubmit={saveEdit} style={{ display: 'grid', gap: 12 }}>
+            <label style={fieldStyle}>
+              <span style={labelStyle}>ROOM ID</span>
+              <input className="input-field" value={editRoom.roomId || ''} onChange={(e) => setEditRoom({ ...editRoom, roomId: e.target.value.toUpperCase() })} />
+            </label>
+            <label style={fieldStyle}>
+              <span style={labelStyle}>ROOM NUMBER</span>
+              <input className="input-field" required value={editRoom.roomNo || ''} onChange={(e) => setEditRoom({ ...editRoom, roomNo: e.target.value })} />
+            </label>
+            <label style={fieldStyle}>
+              <span style={labelStyle}>CAPACITY</span>
+              <input className="input-field" type="number" min={1} required value={editRoom.capacity} onChange={(e) => setEditRoom({ ...editRoom, capacity: e.target.value })} />
+            </label>
+            <button className="btn-primary" type="submit">Save changes</button>
+          </form>
+        )}
+      </Modal>
+
+      <Modal open={allocOpen} title={alloc.mode === 'change' ? 'Change room' : 'Allocate room'} subtitle="Only rooms for the student’s course can be selected." onClose={() => setAllocOpen(false)}>
+        <form onSubmit={submitAlloc} style={{ display: 'grid', gap: 12 }}>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>ACTION</span>
+            <select className="input-field" value={alloc.mode} onChange={(e) => setAlloc({ ...alloc, mode: e.target.value })}>
+              <option value="allocate">Allocate available student</option>
+              <option value="change">Change an existing room</option>
+            </select>
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>COURSE</span>
+            <select className="input-field" value={alloc.course || 'CSE'} onChange={async (e) => {
+              const course = e.target.value;
+              const res = await api.get(`/auth/users?role=STUDENT&course=${course}&limit=100`);
+              setStudents(res.data?.users || []);
+              setAlloc((a) => ({ ...a, course, studentId: '' }));
+            }}>
               {COURSES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
-          </div>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', display: 'block', marginBottom: 6 }}>ROOM NUMBER</label>
-            <input className="input-field" placeholder="CSE-101" value={form.roomNumber}
-              onChange={(e) => setForm({ ...form, roomNumber: e.target.value })} required />
-          </div>
-          <div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', display: 'block', marginBottom: 6 }}>CAPACITY</label>
-            <input type="number" min={1} className="input-field" value={form.capacity}
-              onChange={(e) => setForm({ ...form, capacity: e.target.value })} required />
-          </div>
-          <button type="submit" className="btn-primary" disabled={submitting}
-            style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-            <HiOutlinePlusCircle size={18} /> {submitting ? 'Creating…' : 'Create Room'}
-          </button>
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>STUDENT</span>
+            <select className="input-field" required value={alloc.studentId} onChange={(e) => setAlloc({ ...alloc, studentId: e.target.value })}>
+              <option value="">Select student</option>
+              {courseStudents
+                .filter((s) => (alloc.mode === 'allocate' ? !s.studentProfile?.roomId : Boolean(s.studentProfile?.roomId)))
+                .map((s) => (
+                  <option key={s._id} value={s._id}>
+                    {s.firstName} {s.lastName} · {s.studentProfile?.roomCode || s.studentProfile?.roomNumber || 'unassigned'}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>ROOM</span>
+            <select className="input-field" required value={alloc.roomId} onChange={(e) => setAlloc({ ...alloc, roomId: e.target.value })}>
+              <option value="">Select room</option>
+              {targetRooms.filter((r) => (r.availableBeds ?? r.available ?? 1) > 0).map((r) => (
+                <option key={r._id} value={r._id}>{r.roomId} · No. {r.roomNo} · {r.availableBeds} beds</option>
+              ))}
+            </select>
+          </label>
+          <button className="btn-primary" type="submit">{alloc.mode === 'change' ? 'Change room' : 'Allocate room'}</button>
         </form>
-      </motion.div>
-
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24, alignItems: 'center' }}>
-        <HiOutlineFunnel size={18} color="var(--color-text-muted)" />
-        {['ALL', ...COURSES].map((c) => (
-          <button key={c} type="button" onClick={() => setCourseFilter(c)}
-            className={courseFilter === c ? 'btn-primary' : 'btn-secondary'}
-            style={{ padding: '8px 14px', fontSize: 13, borderRadius: 999, transition: 'transform 0.15s' }}
-            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; }}
-          >
-            {c}
-          </button>
-        ))}
-      </div>
-
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-        gap: 16,
-      }}>
-        {loading ? (
-          [1, 2, 3, 4].map((i) => <RoomCardSkeleton key={i} />)
-        ) : rooms.length === 0 ? (
-          <div className="glass" style={{ gridColumn: '1 / -1', padding: 48, textAlign: 'center', borderRadius: 16, color: 'var(--color-text-muted)' }}>
-            No course rooms yet. Create one above.
-          </div>
-        ) : rooms.map((r, idx) => {
-          const occupied = r.occupied ?? r.occupants?.length ?? 0;
-          const available = r.available ?? (r.capacity - occupied);
-          const full = available <= 0;
-          return (
-            <motion.div
-              key={r._id}
-              className="glass"
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.04 }}
-              whileHover={{ y: -4, boxShadow: '0 12px 40px rgba(0,0,0,0.25)' }}
-              style={{
-                padding: 20,
-                borderRadius: 16,
-                border: '1px solid var(--color-border)',
-                transition: 'box-shadow 0.25s ease',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <div>
-                  <h3 style={{ fontSize: 20, fontWeight: 800 }}>{r.roomNumber}</h3>
-                  <span style={{
-                    display: 'inline-block', marginTop: 6, fontSize: 11, fontWeight: 700,
-                    padding: '4px 10px', borderRadius: 999,
-                    background: 'rgba(42,157,143,0.15)', color: 'var(--color-accent-light)',
-                  }}>
-                    {r.course}
-                  </span>
-                </div>
-                <button type="button" onClick={() => removeRoom(r._id)} title="Delete room"
-                  style={{
-                    background: 'rgba(225,85,84,0.1)', border: 'none', borderRadius: 10,
-                    padding: 8, cursor: 'pointer', color: 'var(--color-danger)',
-                  }}>
-                  <HiOutlineTrash size={18} />
-                </button>
-              </div>
-
-              <p style={{ fontSize: 14, color: 'var(--color-text-muted)', marginTop: 16 }}>
-                Occupied: <strong style={{ color: 'var(--color-text)' }}>{occupied}</strong> / {r.capacity}
-              </p>
-              <p style={{ fontSize: 13, marginTop: 4, color: full ? 'var(--color-danger)' : 'var(--color-success)' }}>
-                Available seats: {available}
-              </p>
-
-              <OccupancyBar occupied={occupied} capacity={r.capacity} />
-
-              <button type="button" className="btn-secondary"
-                onClick={() => setStudentsModal(r)}
-                style={{
-                  width: '100%', marginTop: 16, padding: '10px 14px',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                  fontSize: 13, fontWeight: 600,
-                }}>
-                <HiOutlineUsers size={18} /> View Students
-              </button>
-            </motion.div>
-          );
-        })}
-      </div>
-
-      <AnimatePresence>
-        {studentsModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setStudentsModal(null)}
-            style={{
-              position: 'fixed', inset: 0, zIndex: 100,
-              background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-            }}
-          >
-            <motion.div
-              initial={{ scale: 0.95, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 20 }}
-              onClick={(e) => e.stopPropagation()}
-              className="glass"
-              style={{ width: '100%', maxWidth: 420, padding: 24, borderRadius: 20, maxHeight: '80vh', overflow: 'auto' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <div>
-                  <h3 style={{ fontSize: 18, fontWeight: 800 }}>{studentsModal.roomNumber}</h3>
-                  <p style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>{studentsModal.course} · {studentsModal.occupants?.length ?? 0} students</p>
-                </div>
-                <button type="button" onClick={() => setStudentsModal(null)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)' }}>
-                  <HiOutlineXMark size={24} />
-                </button>
-              </div>
-              {(studentsModal.occupants?.length ?? 0) === 0 ? (
-                <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', padding: 24 }}>No students assigned yet.</p>
-              ) : (
-                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {studentsModal.occupants.map((s) => (
-                    <li key={s._id || s.email} style={{
-                      padding: '12px 14px', borderRadius: 12,
-                      background: 'rgba(255,255,255,0.04)', border: '1px solid var(--color-border)',
-                    }}>
-                      <span style={{ fontWeight: 700 }}>{s.firstName} {s.lastName}</span>
-                      <span style={{ display: 'block', fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>{s.email}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
+      </Modal>
     </div>
   );
 }
