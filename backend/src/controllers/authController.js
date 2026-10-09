@@ -71,7 +71,7 @@ const clearTokenCookies = (res) => {
 exports.register = async (req, res) => {
   const effectiveRole = req.body?.role || 'STUDENT';
   if (effectiveRole === 'STUDENT') {
-    const seeded = await ensureCourseRooms();
+    const seeded = await ensureCourseRooms(req.body?.studentProfile?.course);
     if (!seeded.ok) {
       return res.status(400).json({ success: false, message: seeded.message });
     }
@@ -203,7 +203,7 @@ exports.register = async (req, res) => {
 exports.createStudent = async (req, res) => {
   const coursePreview = req.body?.studentProfile?.course;
   if (isValidCourse(coursePreview)) {
-    const seeded = await ensureCourseRooms();
+    const seeded = await ensureCourseRooms(coursePreview);
     if (!seeded.ok) {
       return res.status(400).json({ success: false, message: seeded.message });
     }
