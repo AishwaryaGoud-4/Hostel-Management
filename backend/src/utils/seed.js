@@ -99,6 +99,27 @@ const seed = async () => {
     }
     await Room.insertMany(rooms2);
 
+    const courseCodes = ['CSE', 'ECE', 'EEE', 'BSC', 'BBA'];
+    const courseRooms = [];
+    for (const c of courseCodes) {
+      for (let n = 1; n <= 20; n++) {
+        courseRooms.push({
+          hostelId: hostel1._id,
+          course: c,
+          roomNumber: `${c}${String(n).padStart(3, '0')}`,
+          block: 'A',
+          floor: 1,
+          type: 'DORMITORY',
+          status: 'AVAILABLE',
+          capacity: 4,
+          occupants: [],
+          monthlyRent: 5000,
+          amenities: ['Bed', 'Wi-Fi', 'Electricity', 'Study Table', 'Cupboard', 'Fan', 'Water'],
+        });
+      }
+    }
+    await Room.insertMany(courseRooms);
+
     // Update hostel counts
     const h1Rooms = await Room.find({ hostelId: hostel1._id });
     const h2Rooms = await Room.find({ hostelId: hostel2._id });
@@ -108,7 +129,7 @@ const seed = async () => {
     // Create Students
     const students = [];
     const departments = ['Computer Science', 'Electronics', 'Mechanical', 'Civil', 'Electrical'];
-    const courses = ['B.Tech', 'M.Tech', 'B.Sc', 'M.Sc'];
+    const courses = courseCodes;
     for (let i = 1; i <= 20; i++) {
       students.push({
         firstName: `Student${i}`, lastName: `User${i}`, email: `student${i}@shms.com`,

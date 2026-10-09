@@ -17,15 +17,30 @@ const userSchema = new mongoose.Schema(
     isActive: { type: Boolean, default: true },
     isEmailVerified: { type: Boolean, default: false },
     refreshToken: { type: String, select: false },
+    refreshSessions: {
+      type: [{
+        _id: false,
+        hash: String,
+        family: String,
+        expiresAt: Date,
+        userAgent: String,
+        createdAt: { type: Date, default: Date.now },
+      }],
+      select: false,
+      default: undefined,
+    },
     passwordResetToken: { type: String, select: false },
     passwordResetExpiry: { type: Date, select: false },
     studentProfile: {
       rollNumber: { type: String, sparse: true },
-      course: String,
+      course: { type: String, enum: ['CSE', 'ECE', 'EEE', 'BSC', 'BBA', null], default: null },
       year: { type: Number, min: 1, max: 6 },
       department: String,
       hostelId: { type: mongoose.Schema.Types.ObjectId, ref: 'Hostel' },
       roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room' },
+      roomCode: { type: String, trim: true },
+      roomNumber: { type: String, trim: true },
+      roomAssignedAt: Date,
       guardianName: String,
       guardianPhone: String,
       address: String,
@@ -48,6 +63,7 @@ const userSchema = new mongoose.Schema(
       transform: (_doc, ret) => {
         delete ret.password;
         delete ret.refreshToken;
+        delete ret.refreshSessions;
         delete ret.passwordResetToken;
         delete ret.passwordResetExpiry;
         return ret;
@@ -56,8 +72,6 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-userSchema.index({ email: 1 });
 userSchema.index({ role: 1 });
-userSchema.index({ 'studentProfile.rollNumber': 1 });
 
 module.exports = mongoose.model('User', userSchema);

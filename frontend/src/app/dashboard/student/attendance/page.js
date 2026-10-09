@@ -9,14 +9,14 @@ import toast from 'react-hot-toast';
 
 /* ── Wanderlust Dusk tokens ──────────────────────────────────── */
 const T = {
-  primary:     '#e2725b',
-  primaryLight:'#f2a679',
-  accent:      '#2a9d8f',
-  success:     '#6fae66',
-  warning:     '#f4a259',
-  danger:      '#e15554',
-  textMuted:   '#a89f92',
-  border:      '#34302a',
+  primary:     '#2563eb',
+  primaryLight:'#93c5fd',
+  accent:      '#059669',
+  success:     '#16a34a',
+  warning:     '#d97706',
+  danger:      '#dc2626',
+  textMuted:   '#94a3b8',
+  border:      '#243044',
   bgCard:      '#211d18',
   text:        '#f5ece3',
 };
@@ -53,15 +53,13 @@ export default function StudentAttendancePage() {
   // Real-time: refresh when attendance is updated for this student
   useEffect(() => {
     if (!socket) return;
-    const onUpdate = () => {
-      loadAttendance();
-      toast('Your attendance has been updated!', { icon: '📋', duration: 4000 });
-    };
+    const onUpdate = () => loadAttendance();
     socket.on('attendance:updated', onUpdate);
     return () => { socket.off('attendance:updated', onUpdate); };
   }, [socket, loadAttendance]);
 
-  const getColor = (pct) => pct >= 75 ? T.success : pct >= 50 ? T.warning : T.danger;
+  const hasRecords = data.totalDays > 0;
+  const getColor = (pct) => !hasRecords ? T.textMuted : pct >= 75 ? T.success : pct >= 50 ? T.warning : T.danger;
   const todayInfo = STATUS_COLORS[data.todayStatus] || null;
 
   // Build chart data from monthlyStats
@@ -91,9 +89,9 @@ export default function StudentAttendancePage() {
       </div>
 
       {/* Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 16, marginBottom: 28 }}>
+      <div className="sd-stats" style={{ marginBottom: 28 }}>
         {[
-          { icon: FiPercent, label: 'Attendance %', value: `${data.percentage}%`, color: getColor(data.percentage) },
+          { icon: FiPercent, label: 'Attendance %', value: hasRecords ? `${data.percentage}%` : '—', color: hasRecords ? getColor(data.percentage) : T.textMuted },
           { icon: FiCheckCircle, label: 'Present Days', value: data.presentCount, color: T.success },
           { icon: FiXCircle, label: 'Absent Days', value: data.totalDays - data.presentCount, color: T.danger },
           { icon: FiCalendar, label: 'Total Days', value: data.totalDays, color: T.accent },
@@ -126,20 +124,29 @@ export default function StudentAttendancePage() {
                 style={{ transition: 'stroke-dasharray 1s ease' }} />
             </svg>
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ fontSize: 32, fontWeight: 800, color: getColor(data.percentage) }}>{data.percentage}%</span>
+              <span style={{ fontSize: 32, fontWeight: 800, color: getColor(data.percentage) }}>{hasRecords ? `${data.percentage}%` : '—'}</span>
               <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>Attendance</span>
             </div>
           </div>
-          <div>
-            <p style={{ color: data.percentage >= 75 ? T.success : T.danger, fontWeight: 600, fontSize: 14 }}>
-              {data.percentage >= 75 ? '✅ Good Standing' : '⚠️ Below Minimum (75%)'}
-            </p>
-            <p style={{ color: 'var(--color-text-muted)', fontSize: 13, marginTop: 8, maxWidth: 260, lineHeight: 1.5 }}>
-              {data.percentage >= 75
-                ? 'Great job! Keep maintaining your attendance above 75%.'
-                : 'Your attendance is below 75%. Please improve to avoid penalties.'}
-            </p>
-          </div>
+          {hasRecords ? (
+            <div>
+              <p style={{ color: data.percentage >= 75 ? T.success : T.danger, fontWeight: 600, fontSize: 14 }}>
+                {data.percentage >= 75 ? '✅ Good Standing' : '⚠️ Below Minimum (75%)'}
+              </p>
+              <p style={{ color: 'var(--color-text-muted)', fontSize: 13, marginTop: 8, maxWidth: 260, lineHeight: 1.5 }}>
+                {data.percentage >= 75
+                  ? 'Great job! Keep maintaining your attendance above 75%.'
+                  : 'Your attendance is below 75%. Please improve to avoid penalties.'}
+              </p>
+            </div>
+          ) : (
+            <div>
+              <p style={{ fontWeight: 600, fontSize: 14 }}>No attendance recorded yet</p>
+              <p style={{ color: 'var(--color-text-muted)', fontSize: 13, marginTop: 8, maxWidth: 260, lineHeight: 1.5 }}>
+                Your percentage will appear here once the warden starts marking attendance. You need at least 75%.
+              </p>
+            </div>
+          )}
         </div>
       </motion.div>
 

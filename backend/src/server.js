@@ -14,6 +14,7 @@ const { errorHandler, notFound } = require('./middleware/errorHandler');
 // Route imports
 const authRoutes = require('./routes/authRoutes');
 const hostelRoutes = require('./routes/hostelRoutes');
+const roomRoutes = require('./routes/roomRoutes');
 const complaintRoutes = require('./routes/complaintRoutes');
 const attendanceRoutes = require('./routes/attendanceRoutes');
 const feeRoutes = require('./routes/feeRoutes');
@@ -38,7 +39,14 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 // Global rate limiter
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }));
+// Live dashboards refetch on every socket event, and a hostel's students often share one public IP.
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_MAX) || 5000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many requests. Please slow down and try again shortly.' },
+}));
 
 // Health check / Root route
 app.get(['/', '/api/health'], (req, res) => {
@@ -48,6 +56,7 @@ app.get(['/', '/api/health'], (req, res) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/hostels', hostelRoutes);
+app.use('/api/rooms', roomRoutes);
 app.use('/api/complaints', complaintRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/fees', feeRoutes);

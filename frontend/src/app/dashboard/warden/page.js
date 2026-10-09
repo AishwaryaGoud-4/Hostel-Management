@@ -6,18 +6,20 @@ import api from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { useSocket } from '@/store/socketProvider';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
+import LiveDot from '@/components/ui/LiveDot';
 import toast from 'react-hot-toast';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 /* ── Wanderlust Dusk tokens (mirrored for inline styles) ────── */
 const T = {
-  primary:    '#e2725b',
-  accent:     '#2a9d8f',
-  accentLight:'#5fc9ba',
-  success:    '#6fae66',
-  warning:    '#f4a259',
-  danger:     '#e15554',
-  textMuted:  '#a89f92',
-  bgSurface:  'rgba(23,20,15,0.6)',
+  primary:    '#2563eb',
+  accent:     '#059669',
+  accentLight:'#34d399',
+  success:    '#16a34a',
+  warning:    '#d97706',
+  danger:     '#dc2626',
+  textMuted:  '#94a3b8',
+  bgSurface:  'rgba(15,23,42,0.45)',
 };
 
 export default function WardenDashboard() {
@@ -28,6 +30,7 @@ export default function WardenDashboard() {
   const [passes, setPasses] = useState([]);
   const [studentCount, setStudentCount] = useState(0);
   const [todayAttendance, setTodayAttendance] = useState({ present: 0, absent: 0, total: 0 });
+  const [recent, setRecent] = useState([]);
   /* Track newly-inserted complaint IDs for animate-new-row */
   const prevComplaintIds = useRef(new Set());
 
@@ -56,18 +59,32 @@ export default function WardenDashboard() {
 
   useEffect(() => { loadData(); }, []);
 
-  // Real-time listeners
+  useLiveRefresh([
+    'complaint:new', 'complaint:updated', 'gatepass:new', 'gatepass:updated', 'student:updated', 'student:removed',
+    'room:updated', 'attendance:updated', 'attendance:bulk-updated', 'attendance:student-marked',
+  ], () => loadData());
+
+  // Keeps the "recent arrivals" list current; toasts come from the notification feed.
   useEffect(() => {
     if (!socket) return;
-    const onStudentAdded = () => { loadData(); toast('New student added to your hostel!', { icon: '👤' }); };
-    const onAttendanceUpdate = () => { loadData(); };
-    socket.on('student:added', onStudentAdded);
-    socket.on('attendance:updated', onAttendanceUpdate);
-    socket.on('attendance:bulk-updated', onAttendanceUpdate);
+    const onStudent = (event) => {
+      loadData();
+      const student = event?.user || event?.student || event;
+      const name = student?.firstName ? `${student.firstName} ${student.lastName || ''}`.trim() : null;
+      const roomId = event?.room?.roomId || student?.studentProfile?.roomCode;
+      if (!name) return;
+      setRecent((list) => {
+        const next = { id: `${name}-${roomId || 'room'}`, name, roomId, course: student?.studentProfile?.course || event?.room?.course };
+        return [next, ...list.filter((item) => item.name !== name)].slice(0, 6);
+      });
+    };
+    socket.on('student:added', onStudent);
+    socket.on('student:registered', onStudent);
+    socket.on('room:allocated', onStudent);
     return () => {
-      socket.off('student:added', onStudentAdded);
-      socket.off('attendance:updated', onAttendanceUpdate);
-      socket.off('attendance:bulk-updated', onAttendanceUpdate);
+      socket.off('student:added', onStudent);
+      socket.off('student:registered', onStudent);
+      socket.off('room:allocated', onStudent);
     };
   }, [socket]);
 
@@ -104,15 +121,23 @@ export default function WardenDashboard() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {/* Live monitoring cue — heartbeat dot */}
-          {isConnected && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 20,
-              background: `${T.accent}18`, border: `1px solid ${T.accent}30` }}>
-              <span className="live-monitor-dot" />
-              <span style={{ fontSize: 11, fontWeight: 600, color: T.accentLight }}>Monitoring</span>
-            </div>
-          )}
+          <LiveDot connected={isConnected} label={isConnected ? 'Live' : 'Offline'} />
         </div>
       </div>
+
+      {recent.length > 0 && (
+        <motion.div {...panelMotion(0.2)} className="glass" style={{ padding: 16, borderRadius: 16, marginBottom: 20 }}>
+          <h3 style={{ fontSize: 14, marginBottom: 10 }}>Live room allocations</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {recent.map((item) => (
+              <div key={item.id} className="room-live" style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13 }}>
+                <span>{item.name}{item.course ? ` · ${item.course}` : ''}</span>
+                <strong>{item.roomId || 'Room updated'}</strong>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       {/* Stats — slide-in-left (items "arriving" into a queue) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16, marginBottom: 32 }}>

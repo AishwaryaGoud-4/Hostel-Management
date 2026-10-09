@@ -13,6 +13,7 @@ import {
 } from 'react-icons/hi2';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 const STATUS_STYLES = {
   PENDING:  { label: 'Pending',  bg: 'rgba(59,130,246,0.15)',  color: '#60a5fa' },
@@ -40,6 +41,8 @@ export default function StaffGatepassesPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  useLiveRefresh(['gatepass:new', 'gatepass:updated'], () => load());
 
   const filtered = filter === 'ALL' ? passes : passes.filter(p => p.status === filter);
 

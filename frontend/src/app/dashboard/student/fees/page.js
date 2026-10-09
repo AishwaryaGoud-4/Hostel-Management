@@ -4,18 +4,19 @@ import { motion } from 'framer-motion';
 import { FiDollarSign, FiClock, FiCheckCircle, FiAlertTriangle } from 'react-icons/fi';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 /* ── Wanderlust Dusk tokens ──────────────────────────────────── */
 const T = {
-  primary:    '#e2725b',
-  accent:     '#2a9d8f',
-  success:    '#6fae66',
-  warning:    '#f4a259',
-  danger:     '#e15554',
-  textMuted:  '#a89f92',
+  primary:    '#2563eb',
+  accent:     '#059669',
+  success:    '#16a34a',
+  warning:    '#d97706',
+  danger:     '#dc2626',
+  textMuted:  '#94a3b8',
   bgCard:     '#211d18',
-  border:     '#34302a',
-  bgSurface:  'rgba(23,20,15,0.6)',
+  border:     '#243044',
+  bgSurface:  'rgba(15,23,42,0.45)',
 };
 
 const statusColors = {
@@ -42,6 +43,8 @@ export default function StudentFeesPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  useLiveRefresh(['fee:updated'], () => load());
 
   const handlePay = async (e) => {
     e.preventDefault();

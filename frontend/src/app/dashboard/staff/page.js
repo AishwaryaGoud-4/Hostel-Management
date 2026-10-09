@@ -5,16 +5,17 @@ import { FiAlertCircle, FiCheckCircle, FiClock, FiTool } from 'react-icons/fi';
 import api from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 /* ── Wanderlust Dusk tokens (mirrored for inline styles) ────── */
 const T = {
-  primary:    '#e2725b',
-  accent:     '#2a9d8f',
-  success:    '#6fae66',
-  warning:    '#f4a259',
-  danger:     '#e15554',
-  textMuted:  '#a89f92',
-  bgSurface:  'rgba(23,20,15,0.6)',
+  primary:    '#2563eb',
+  accent:     '#059669',
+  success:    '#16a34a',
+  warning:    '#d97706',
+  danger:     '#dc2626',
+  textMuted:  '#94a3b8',
+  bgSurface:  'rgba(15,23,42,0.45)',
 };
 
 export default function StaffDashboard() {
@@ -22,9 +23,10 @@ export default function StaffDashboard() {
   const reduced = useReducedMotion();
   const [complaints, setComplaints] = useState([]);
 
-  useEffect(() => {
-    api.get('/complaints?limit=20').then(res => setComplaints(res.data?.complaints || [])).catch(() => {});
-  }, []);
+  const load = () => api.get('/complaints?limit=20').then(res => setComplaints(res.data?.complaints || [])).catch(() => {});
+
+  useEffect(() => { load(); }, []);
+  useLiveRefresh(['complaint:new', 'complaint:updated'], () => load());
 
   const assigned = complaints.filter(c => c.assignedTo === user?._id || c.assignedTo?._id === user?._id);
   const stats = [

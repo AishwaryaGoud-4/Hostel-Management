@@ -12,12 +12,13 @@ import {
 } from 'react-icons/hi2';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 const STATUS_STYLES = {
   PENDING:  { label: 'Pending',  bg: 'rgba(59,130,246,0.15)',  color: '#93c5fd' },
-  APPROVED: { label: 'Approved', bg: 'rgba(111,174,102,0.15)', color: '#6fae66' },
-  REJECTED: { label: 'Rejected', bg: 'rgba(225,85,84,0.15)',   color: '#e15554' },
-  USED:     { label: 'Used',     bg: 'rgba(168,159,146,0.15)', color: '#a89f92' },
+  APPROVED: { label: 'Approved', bg: 'rgba(111,174,102,0.15)', color: '#16a34a' },
+  REJECTED: { label: 'Rejected', bg: 'rgba(225,85,84,0.15)',   color: '#dc2626' },
+  USED:     { label: 'Used',     bg: 'rgba(168,159,146,0.15)', color: '#94a3b8' },
   EXPIRED:  { label: 'Expired',  bg: 'rgba(100,116,139,0.15)', color: '#64748b' },
 };
 
@@ -39,6 +40,8 @@ export default function WardenGatepassesPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  useLiveRefresh(['gatepass:new', 'gatepass:updated'], () => load());
 
   const filtered = filter === 'ALL' ? passes : passes.filter(p => p.status === filter);
 
@@ -106,7 +109,7 @@ export default function WardenGatepassesPage() {
           <button key={f} onClick={() => setFilter(f)}
             style={{
               padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-              background: filter === f ? 'var(--color-primary)' : 'rgba(226,114,91,0.08)',
+              background: filter === f ? 'var(--color-primary)' : 'rgba(37,99,235,0.08)',
               color: filter === f ? '#fff' : 'var(--color-text-muted)', transition: 'all 0.15s',
             }}>{f}</button>
         ))}
@@ -218,7 +221,7 @@ export default function WardenGatepassesPage() {
                   </div>
                   <div style={{ display: 'flex', gap: 10 }}>
                     <button onClick={reject} disabled={acting} className="btn-secondary"
-                      style={{ flex: 1, padding: 12, fontSize: 13, color: '#e15554', borderColor: '#e15554' }}>
+                      style={{ flex: 1, padding: 12, fontSize: 13, color: '#dc2626', borderColor: '#dc2626' }}>
                       {acting ? '…' : '✕ Reject'}
                     </button>
                     <button onClick={approve} disabled={acting} className="btn-primary"

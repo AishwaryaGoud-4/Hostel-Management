@@ -13,6 +13,7 @@ import {
 import api from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import toast from 'react-hot-toast';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 const STATUS_COLORS = {
   OPEN: '#3b82f6', IN_PROGRESS: '#f59e0b', RESOLVED: '#10b981',
@@ -50,6 +51,8 @@ export default function StaffComplaintsPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  useLiveRefresh(['complaint:new', 'complaint:updated'], () => load());
 
   const filtered = filter === 'ALL' ? complaints : complaints.filter(c => c.status === filter);
 

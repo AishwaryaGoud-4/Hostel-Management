@@ -3,11 +3,10 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { FiPlus, FiFileText, FiCheck, FiX } from 'react-icons/fi';
 import api from '@/lib/api';
-import { useAuthStore } from '@/store/authStore';
 import toast from 'react-hot-toast';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 export default function StudentGatePassPage() {
-  const { user } = useAuthStore();
   const [passes, setPasses] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
@@ -22,11 +21,11 @@ export default function StudentGatePassPage() {
     if (res.success) setPasses(res.data.passes);
   };
   useEffect(() => { load(); }, []);
+  useLiveRefresh(['gatepass:updated'], () => load());
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const hostelId = typeof user?.studentProfile?.hostelId === 'object' ? user.studentProfile.hostelId._id : user?.studentProfile?.hostelId;
-    const payload = { type: form.type, hostelId: hostelId || '000000000000000000000000' };
+    const payload = { type: form.type };
     if (form.type === 'OUTING') payload.outingDetails = form.outingDetails;
     if (form.type === 'LEAVE') payload.leaveDetails = form.leaveDetails;
     if (form.type === 'VISITOR') payload.visitorDetails = form.visitorDetails;
@@ -160,7 +159,7 @@ export default function StudentGatePassPage() {
         ))}
         {passes.length === 0 && (
           <div className="glass" style={{ padding: 40, borderRadius: 16, textAlign: 'center' }}>
-            <FiFileText size={40} color="#94a3b8" style={{ marginBottom: 12 }} />
+            <FiFileText size={40} color="#94a3b8" style={{ display: 'block', margin: '0 auto 12px' }} />
             <p style={{ color: '#94a3b8' }}>No gate passes requested yet.</p>
           </div>
         )}

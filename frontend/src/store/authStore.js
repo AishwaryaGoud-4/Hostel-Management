@@ -51,7 +51,9 @@ export const useAuthStore = create((set, get) => ({
 
   checkAuth: async () => {
     try {
-      set({ isLoading: true });
+      // Re-checks for an already signed-in user must not unmount the dashboard behind a spinner.
+      if (!get().isAuthenticated) set({ isLoading: true });
+      if (!api.accessToken) await api.refreshToken();
       const res = await api.get('/auth/me');
       if (res.success) {
         set({ user: res.data.user, isAuthenticated: true, isLoading: false });
@@ -64,6 +66,8 @@ export const useAuthStore = create((set, get) => ({
       return false;
     }
   },
+
+  setUser: (user) => set({ user }),
 
   clearError: () => set({ error: null }),
 }));

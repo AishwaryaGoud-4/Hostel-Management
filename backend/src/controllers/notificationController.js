@@ -21,7 +21,7 @@ exports.getNotifications = async (req, res) => {
 
 exports.markAsRead = async (req, res) => {
   try {
-    await Notification.findByIdAndUpdate(req.params.id, { isRead: true, readAt: new Date() });
+    await Notification.updateOne({ _id: req.params.id, recipientId: req.user.userId }, { isRead: true, readAt: new Date() });
     res.status(200).json({ success: true, message: 'Marked as read' });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
 };
@@ -35,7 +35,7 @@ exports.markAllRead = async (req, res) => {
 
 exports.deleteNotification = async (req, res) => {
   try {
-    await Notification.findByIdAndDelete(req.params.id);
+    await Notification.deleteOne({ _id: req.params.id, recipientId: req.user.userId });
     res.status(200).json({ success: true, message: 'Deleted' });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
 };

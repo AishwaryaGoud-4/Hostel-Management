@@ -13,12 +13,12 @@ import toast from 'react-hot-toast';
 
 /* ── Wanderlust Dusk tokens ──────────────────────────────────── */
 const T = {
-  success:    '#6fae66',
-  danger:     '#e15554',
-  warning:    '#f4a259',
-  primaryLight: '#f2a679',
-  textMuted:  '#a89f92',
-  accent:     '#2a9d8f',
+  success:    '#16a34a',
+  danger:     '#dc2626',
+  warning:    '#d97706',
+  primaryLight: '#93c5fd',
+  textMuted:  '#94a3b8',
+  accent:     '#059669',
 };
 
 const STATUS_OPTIONS = [
@@ -110,7 +110,7 @@ export default function WardenAttendancePage() {
   // Socket: real-time student additions
   useEffect(() => {
     if (!socket) return;
-    const onStudentAdded = () => { loadStudents(); toast('New student added!', { icon: '👤' }); };
+    const onStudentAdded = () => { loadStudents(); };
     const onStudentMarked = (data) => {
       setAttendance(prev => ({ ...prev, [data.studentId]: data.status }));
       toast(`${data.method} check-in received`, { icon: '📱' });
@@ -233,7 +233,7 @@ export default function WardenAttendancePage() {
           {[{ id: 'mark', label: '✏️ Mark' }, { id: 'qr', label: '📱 QR' }].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               style={{ padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                background: tab === t.id ? 'var(--color-primary)' : 'rgba(226,114,91,0.08)',
+                background: tab === t.id ? 'var(--color-primary)' : 'rgba(37,99,235,0.08)',
                 color: tab === t.id ? '#fff' : 'var(--color-text-muted)', transition: 'all 0.15s' }}>
               {t.label}
             </button>

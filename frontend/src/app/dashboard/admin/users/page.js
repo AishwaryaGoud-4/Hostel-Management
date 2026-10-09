@@ -4,11 +4,16 @@ import { motion } from 'framer-motion';
 import { FiSearch, FiFilter, FiUser, FiMail, FiPhone, FiEdit2, FiTrash2 } from 'react-icons/fi';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
   const [pagination, setPagination] = useState({});
   const [filters, setFilters] = useState({ role: '', search: '', page: 1 });
+  const [adding, setAdding] = useState(false);
+  const [studentForm, setStudentForm] = useState({
+    firstName: '', lastName: '', email: '', phone: '', password: '', course: 'CSE',
+  });
 
   const load = async () => {
     const params = new URLSearchParams();
@@ -24,6 +29,8 @@ export default function UsersPage() {
   };
 
   useEffect(() => { load(); }, [filters.role, filters.page]);
+
+  useLiveRefresh(['user:added', 'user:updated', 'user:removed', 'student:registered'], () => load());
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -42,14 +49,52 @@ export default function UsersPage() {
     load();
   };
 
+  const addStudent = async (e) => {
+    e.preventDefault();
+    setAdding(true);
+    const res = await api.post('/auth/students', {
+      firstName: studentForm.firstName,
+      lastName: studentForm.lastName,
+      email: studentForm.email,
+      phone: studentForm.phone,
+      password: studentForm.password,
+      studentProfile: { course: studentForm.course, year: 1 },
+    });
+    setAdding(false);
+    if (res.success) {
+      const room = res.room || res.data?.room;
+      toast.success(room?.roomId
+        ? `${studentForm.firstName} assigned to ${room.roomId} (Room ${room.roomNumber})`
+        : 'Student added');
+      setStudentForm({ firstName: '', lastName: '', email: '', phone: '', password: '', course: 'CSE' });
+      load();
+    } else {
+      toast.error(res.message || 'Could not add student');
+    }
+  };
+
   const roleColors = { SUPER_ADMIN: '#ef4444', WARDEN: '#7c3aed', STUDENT: '#06b6d4', STAFF: '#f59e0b' };
 
   return (
     <div>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 800 }}>User Management</h1>
-        <p style={{ color: '#94a3b8', fontSize: 14, marginTop: 4 }}>Manage all system users across roles</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-end', marginBottom: 20, flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ fontSize: 24, fontWeight: 800 }}>User Management</h1>
+          <p style={{ color: 'var(--color-text-muted)', fontSize: 14, marginTop: 4 }}>Add students to allocate a course room automatically</p>
+        </div>
       </div>
+
+      <form onSubmit={addStudent} className="glass" style={{ padding: 16, borderRadius: 16, marginBottom: 20, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, alignItems: 'end' }}>
+        <input className="input-field" required aria-label="First name" placeholder="First name" value={studentForm.firstName} onChange={(e) => setStudentForm({ ...studentForm, firstName: e.target.value })} />
+        <input className="input-field" required aria-label="Last name" placeholder="Last name" value={studentForm.lastName} onChange={(e) => setStudentForm({ ...studentForm, lastName: e.target.value })} />
+        <input className="input-field" required type="email" aria-label="Email" placeholder="Email" value={studentForm.email} onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })} />
+        <input className="input-field" required aria-label="Phone" placeholder="Phone" value={studentForm.phone} onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })} />
+        <input className="input-field" required type="password" minLength={8} aria-label="Password" placeholder="Password" value={studentForm.password} onChange={(e) => setStudentForm({ ...studentForm, password: e.target.value })} />
+        <select className="input-field" aria-label="Course" value={studentForm.course} onChange={(e) => setStudentForm({ ...studentForm, course: e.target.value })}>
+          {['CSE', 'ECE', 'EEE', 'BSC', 'BBA'].map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <button className="btn-primary" type="submit" disabled={adding}>{adding ? 'Allocating…' : 'Add student'}</button>
+      </form>
 
       {/* Filters */}
       <div className="glass" style={{ padding: 16, borderRadius: 12, marginBottom: 24, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -94,7 +139,13 @@ export default function UsersPage() {
                       </div>
                       <div>
                         <p style={{ fontWeight: 600, fontSize: 13 }}>{u.firstName} {u.lastName}</p>
-                        {u.studentProfile?.rollNumber && <p style={{ fontSize: 11, color: '#94a3b8' }}>{u.studentProfile.rollNumber}</p>}
+                        {u.studentProfile?.course && (
+                          <p style={{ fontSize: 11, color: '#94a3b8' }}>
+                            {u.studentProfile.course}
+                            {(u.studentProfile.roomCode || u.studentProfile.roomId?.roomNumber) ? ` · ${u.studentProfile.roomCode || u.studentProfile.roomId?.roomNumber}` : ''}
+                            {(u.studentProfile.roomNumber || u.studentProfile.roomId?.roomNo) ? ` · No. ${u.studentProfile.roomNumber || u.studentProfile.roomId?.roomNo}` : ''}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </td>

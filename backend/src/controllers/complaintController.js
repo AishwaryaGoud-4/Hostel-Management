@@ -1,6 +1,7 @@
 const Complaint = require('../models/Complaint');
-const Notification = require('../models/Notification');
 const ActivityLog = require('../models/ActivityLog');
+const User = require('../models/User');
+const { toManagement, toUser, notifyUser, notifyRoles, MANAGEMENT_ROLES } = require('../utils/realtime');
 const { generateTicketId, paginateQuery } = require('../utils/helpers');
 const config = require('../config');
 
@@ -42,7 +43,16 @@ function classifyComplaint(title, description) {
 
 exports.createComplaint = async (req, res) => {
   try {
-    const { title, description, category, hostelId, roomId, images } = req.body;
+    const { title, description, category, images } = req.body;
+    if (!title?.trim() || !description?.trim()) {
+      return res.status(400).json({ success: false, message: 'Title and description are required' });
+    }
+    const student = await User.findById(req.user.userId).select('studentProfile.hostelId studentProfile.roomId');
+    const hostelId = student?.studentProfile?.hostelId;
+    const roomId = student?.studentProfile?.roomId;
+    if (!hostelId || !roomId) {
+      return res.status(400).json({ success: false, message: 'You need an assigned room before filing a complaint. Please contact the warden.' });
+    }
     const ticketId = generateTicketId();
 
     // Run local AI classification first
@@ -78,6 +88,7 @@ exports.createComplaint = async (req, res) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title, description }),
+        signal: AbortSignal.timeout(3000),
       });
       if (resp.ok) {
         const remoteResult = await resp.json();
@@ -106,10 +117,15 @@ exports.createComplaint = async (req, res) => {
       ipAddress: req.ip, userAgent: req.headers['user-agent'],
     });
 
-    // Emit socket event
-    if (req.app.get('io')) {
-      req.app.get('io').to(`hostel_${hostelId}`).emit('complaint:new', complaint);
-    }
+    const io = req.app.get('io');
+    toManagement(io, 'complaint:new', complaint);
+    toUser(io, req.user.userId, 'complaint:updated', complaint);
+    await notifyRoles(io, MANAGEMENT_ROLES, {
+      senderId: req.user.userId, type: complaint.status === 'ESCALATED' ? 'EMERGENCY' : 'COMPLAINT',
+      title: `${complaint.status === 'ESCALATED' ? 'Emergency complaint' : 'New complaint'} ${ticketId}`,
+      message: `${title} · ${complaint.priority} priority`,
+      data: { complaintId: complaint._id, ticketId },
+    });
 
     res.status(201).json({ success: true, message: 'Complaint created', data: { complaint } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
@@ -149,6 +165,9 @@ exports.getComplaintById = async (req, res) => {
       .populate('assignedTo', 'firstName lastName email')
       .populate('statusHistory.changedBy', 'firstName lastName');
     if (!complaint) return res.status(404).json({ success: false, message: 'Not found' });
+    if (req.user.role === 'STUDENT' && String(complaint.studentId?._id) !== String(req.user.userId)) {
+      return res.status(403).json({ success: false, message: 'You can only view your own complaints' });
+    }
     res.status(200).json({ success: true, message: 'Complaint retrieved', data: { complaint } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
 };
@@ -166,16 +185,24 @@ exports.updateComplaintStatus = async (req, res) => {
     if (status === 'ESCALATED') complaint.escalatedAt = new Date();
     await complaint.save();
 
-    // Notify student
-    await Notification.create({
-      recipientId: complaint.studentId, senderId: req.user.userId, type: 'COMPLAINT',
-      title: `Complaint ${complaint.ticketId} Updated`, message: `Status changed to ${status}. ${note || ''}`,
-      data: { complaintId: complaint._id, ticketId: complaint.ticketId }, link: `/complaints/${complaint._id}`,
+    const io = req.app.get('io');
+    await notifyUser(io, complaint.studentId, {
+      senderId: req.user.userId, type: 'COMPLAINT',
+      title: `Complaint ${complaint.ticketId} updated`,
+      message: `Status changed to ${status.replace('_', ' ')}.${note ? ` ${note}` : ''}`,
+      data: { complaintId: complaint._id, ticketId: complaint.ticketId },
     });
-
-    if (req.app.get('io')) {
-      req.app.get('io').to(`user_${complaint.studentId}`).emit('complaint:status_change', { complaint, status, note });
+    if (assignedTo && String(assignedTo) !== String(req.user.userId)) {
+      await notifyUser(io, assignedTo, {
+        senderId: req.user.userId, type: 'COMPLAINT',
+        title: `Complaint ${complaint.ticketId} assigned to you`,
+        message: complaint.title,
+        data: { complaintId: complaint._id, ticketId: complaint.ticketId },
+      });
     }
+    toUser(io, complaint.studentId, 'complaint:status_change', { complaint, status, note });
+    toUser(io, complaint.studentId, 'complaint:updated', complaint);
+    toManagement(io, 'complaint:updated', complaint);
 
     res.status(200).json({ success: true, message: 'Status updated', data: { complaint } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
@@ -192,6 +219,17 @@ exports.resolveComplaint = async (req, res) => {
     complaint.statusHistory.push({ status: 'RESOLVED', changedBy: req.user.userId, note: description, timestamp: new Date() });
     await complaint.save();
 
+    const io = req.app.get('io');
+    await notifyUser(io, complaint.studentId, {
+      senderId: req.user.userId, type: 'COMPLAINT',
+      title: `Complaint ${complaint.ticketId} resolved`,
+      message: description || 'Your complaint has been resolved. Please rate the resolution.',
+      data: { complaintId: complaint._id, ticketId: complaint.ticketId },
+    });
+    toUser(io, complaint.studentId, 'complaint:status_change', { complaint, status: 'RESOLVED', note: description });
+    toUser(io, complaint.studentId, 'complaint:updated', complaint);
+    toManagement(io, 'complaint:updated', complaint);
+
     res.status(200).json({ success: true, message: 'Resolved', data: { complaint } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
 };
@@ -207,6 +245,10 @@ exports.rateComplaint = async (req, res) => {
     complaint.status = 'CLOSED';
     complaint.statusHistory.push({ status: 'CLOSED', changedBy: req.user.userId, note: `Rated ${rating}/5`, timestamp: new Date() });
     await complaint.save();
+
+    const io = req.app.get('io');
+    toUser(io, complaint.studentId, 'complaint:updated', complaint);
+    toManagement(io, 'complaint:updated', complaint);
 
     res.status(200).json({ success: true, message: 'Rated', data: { complaint } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }

@@ -15,6 +15,7 @@ import api from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { useCountUp } from '@/hooks/useCountUp';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 /* ── Wanderlust Dusk chart tokens ─────────────────────────────
    All colours reference the design system. CSS custom properties
@@ -22,17 +23,17 @@ import { useCountUp } from '@/hooks/useCountUp';
    the token values here as constants.
 ──────────────────────────────────────────────────────────────── */
 const TOKENS = {
-  primary:      '#e2725b', // var(--color-primary)
-  primaryLight: '#f2a679', // var(--color-primary-light)
-  accent:       '#2a9d8f', // var(--color-accent)
-  accentLight:  '#5fc9ba', // var(--color-accent-light)
-  success:      '#6fae66', // var(--color-success)
-  warning:      '#f4a259', // var(--color-warning)
-  danger:       '#e15554', // var(--color-danger)
-  textMuted:    '#a89f92', // var(--color-text-muted)
+  primary:      '#2563eb', // var(--color-primary)
+  primaryLight: '#93c5fd', // var(--color-primary-light)
+  accent:       '#059669', // var(--color-accent)
+  accentLight:  '#34d399', // var(--color-accent-light)
+  success:      '#16a34a', // var(--color-success)
+  warning:      '#d97706', // var(--color-warning)
+  danger:       '#dc2626', // var(--color-danger)
+  textMuted:    '#94a3b8', // var(--color-text-muted)
   text:         '#f5ece3', // var(--color-text)
   bgCard:       '#211d18', // var(--color-bg-card)
-  border:       '#34302a', // var(--color-border)
+  border:       '#243044', // var(--color-border)
 };
 
 const PIE_COLORS = [TOKENS.primary, TOKENS.accent, TOKENS.success, TOKENS.warning, TOKENS.danger];
@@ -84,19 +85,21 @@ export default function AdminDashboard() {
   const [complaintStats, setComplaintStats] = useState(null);
   const [feeStats, setFeeStats] = useState(null);
 
-  useEffect(() => {
-    const load = async () => {
-      const [hostelRes, complaintRes, feeRes] = await Promise.all([
-        api.get('/hostels/stats').catch(() => ({ data: {} })),
-        api.get('/complaints/stats').catch(() => ({ data: {} })),
-        api.get('/fees/stats').catch(() => ({ data: {} })),
-      ]);
-      setStats(hostelRes.data?.overview || {});
-      setComplaintStats(complaintRes.data || {});
-      setFeeStats(feeRes.data || {});
-    };
-    load();
-  }, []);
+  const load = async () => {
+    const [hostelRes, complaintRes, feeRes] = await Promise.all([
+      api.get('/hostels/stats').catch(() => ({ data: {} })),
+      api.get('/complaints/stats').catch(() => ({ data: {} })),
+      api.get('/fees/stats').catch(() => ({ data: {} })),
+    ]);
+    setStats(hostelRes.data?.overview || {});
+    setComplaintStats(complaintRes.data || {});
+    setFeeStats(feeRes.data || {});
+  };
+
+  useEffect(() => { load(); }, []);
+  useLiveRefresh([
+    'complaint:new', 'complaint:updated', 'fee:updated', 'user:added', 'user:removed', 'room:updated',
+  ], () => load());
 
   const complaintPieData = complaintStats?.byStatus?.map((s) => ({ name: s._id, value: s.count })) || [];
   const categoryData = complaintStats?.byCategory?.map((c) => ({ name: c._id, value: c.count })) || [];

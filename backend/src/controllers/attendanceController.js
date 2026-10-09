@@ -4,6 +4,7 @@ const Hostel = require('../models/Hostel');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 const { isWithinGeofence, paginateQuery } = require('../utils/helpers');
+const { toManagement, toUser } = require('../utils/realtime');
 const crypto = require('crypto');
 
 // ── Helper: send real-time notification ──────────────────────────────────
@@ -111,11 +112,8 @@ exports.markAttendanceQR = async (req, res) => {
     await attendance.save();
 
     // Notify warden in real-time
-    if (io && hostel) {
-      io.to(`hostel_${hostel._id}`).emit('attendance:student-marked', {
-        studentId, status: 'PRESENT', method: 'QR_SCAN', date: today,
-      });
-    }
+    toManagement(io, 'attendance:student-marked', { studentId, status: 'PRESENT', method: 'QR_SCAN', date: today });
+    toUser(io, studentId, 'attendance:updated', { studentId, status: 'PRESENT', date: today });
 
     res.status(200).json({ success: true, message: 'Attendance marked', data: { attendance } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
@@ -149,9 +147,7 @@ exports.markAttendanceManual = async (req, res) => {
     await sendAttendanceNotification(io, studentId, attendanceStatus, today, req.user.userId);
 
     // Notify warden dashboard listeners
-    if (io) {
-      io.to(`hostel_${hostelId}`).emit('attendance:updated', { studentId, status: attendanceStatus, date: today });
-    }
+    toManagement(io, 'attendance:updated', { studentId, status: attendanceStatus, date: today });
 
     res.status(200).json({ success: true, message: 'Attendance recorded', data: { attendance } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
@@ -222,11 +218,7 @@ exports.markBulkAttendance = async (req, res) => {
     }
 
     // Broadcast bulk update to hostel room
-    if (io) {
-      io.to(`hostel_${hostelId}`).emit('attendance:bulk-updated', {
-        hostelId, date: today, count: results.length,
-      });
-    }
+    toManagement(io, 'attendance:bulk-updated', { hostelId, date: today, count: results.length });
 
     res.status(200).json({
       success: true,

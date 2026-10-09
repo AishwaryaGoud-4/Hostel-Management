@@ -2,6 +2,15 @@ const FeeTransaction = require('../models/FeeTransaction');
 const User = require('../models/User');
 const Hostel = require('../models/Hostel');
 const { generateInvoiceId, calculateLateFee, paginateQuery } = require('../utils/helpers');
+const { toUser, toRoles, notifyUser, notifyRoles } = require('../utils/realtime');
+
+const broadcastInvoice = (io, invoice) => {
+  toUser(io, invoice.studentId, 'fee:updated', invoice);
+  toRoles(io, ['SUPER_ADMIN', 'WARDEN'], 'fee:updated', invoice);
+};
+
+const isOtherStudent = (req, studentId) =>
+  req.user.role === 'STUDENT' && studentId && String(studentId) !== String(req.user.userId);
 
 // ── Helper: get current academic year string ─────────────────────────────
 const getAcademicYear = () => {
@@ -75,15 +84,32 @@ exports.createInvoice = async (req, res) => {
       invoiceId: generateInvoiceId(), studentId, hostelId, academicYear, semester,
       lineItems, totalAmount, dueDate: new Date(dueDate), lateFeePerDay: lateFeePerDay || 50,
     });
+    const io = req.app.get('io');
+    broadcastInvoice(io, invoice);
+    await notifyUser(io, studentId, {
+      senderId: req.user.userId, type: 'FEE',
+      title: 'New fee invoice', message: `Invoice ${invoice.invoiceId} for ₹${totalAmount.toLocaleString('en-IN')} is due ${new Date(dueDate).toLocaleDateString('en-IN')}.`,
+      data: { invoiceId: invoice._id },
+    });
     res.status(201).json({ success: true, message: 'Invoice created', data: { invoice } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
 };
 
 exports.makePayment = async (req, res) => {
   try {
-    const { amount, method, transactionId } = req.body;
+    const { method, transactionId } = req.body;
+    const amount = Number(req.body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ success: false, message: 'Enter a valid payment amount' });
+    }
     const invoice = await FeeTransaction.findById(req.params.id);
     if (!invoice) return res.status(404).json({ success: false, message: 'Invoice not found' });
+    if (isOtherStudent(req, invoice.studentId)) {
+      return res.status(403).json({ success: false, message: 'You can only pay your own invoices' });
+    }
+    if (invoice.status === 'PAID') {
+      return res.status(400).json({ success: false, message: 'This invoice is already paid' });
+    }
 
     // Update late fee
     const lateFee = calculateLateFee(invoice.dueDate, invoice.lateFeePerDay);
@@ -97,6 +123,22 @@ exports.makePayment = async (req, res) => {
     else if (invoice.paidAmount > 0) invoice.status = 'PARTIAL';
 
     await invoice.save();
+
+    const io = req.app.get('io');
+    broadcastInvoice(io, invoice);
+    const paid = `₹${amount.toLocaleString('en-IN')}`;
+    await notifyUser(io, invoice.studentId, {
+      senderId: req.user.userId, type: 'FEE',
+      title: invoice.status === 'PAID' ? 'Fee paid in full' : 'Payment received',
+      message: `${paid} received for invoice ${invoice.invoiceId}.`,
+      data: { invoiceId: invoice._id },
+    });
+    await notifyRoles(io, ['SUPER_ADMIN'], {
+      senderId: req.user.userId, type: 'FEE',
+      title: 'Fee payment received', message: `${paid} paid on invoice ${invoice.invoiceId}.`,
+      data: { invoiceId: invoice._id },
+    }, { exclude: req.user.userId });
+
     res.status(200).json({ success: true, message: 'Payment recorded', data: { invoice } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
 };
@@ -104,6 +146,9 @@ exports.makePayment = async (req, res) => {
 exports.getStudentFees = async (req, res) => {
   try {
     const studentId = req.params.studentId || req.user.userId;
+    if (isOtherStudent(req, studentId)) {
+      return res.status(403).json({ success: false, message: 'You can only view your own fees' });
+    }
     const { status, page = 1, limit = 20 } = req.query;
 
     // Auto-generate this month's invoice if it doesn't exist yet
@@ -142,6 +187,9 @@ exports.getStudentFees = async (req, res) => {
 exports.generateMonthlyFee = async (req, res) => {
   try {
     const studentId = req.body.studentId || req.user.userId;
+    if (isOtherStudent(req, studentId)) {
+      return res.status(403).json({ success: false, message: 'You can only generate your own invoice' });
+    }
     const invoice = await autoGenerateMonthlyFee(studentId);
     if (!invoice) {
       return res.status(400).json({ success: false, message: 'Could not generate invoice. No hostel assigned.' });
