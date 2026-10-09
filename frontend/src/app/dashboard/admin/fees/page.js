@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { FiDollarSign, FiTrendingUp, FiAlertTriangle, FiCheckCircle } from 'react-icons/fi';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import api from '@/lib/api';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 export default function AdminFeesPage() {
   const [stats, setStats] = useState({ byStatus: [], revenue: {} });
@@ -21,6 +22,7 @@ export default function AdminFeesPage() {
     setPagination(iRes.pagination || {});
   };
   useEffect(() => { load(); }, [statusFilter]);
+  useLiveRefresh(['fee:updated'], () => load());
 
   const pieColors = ['#94a3b8', '#f59e0b', '#10b981', '#ef4444', '#7c3aed'];
   const statusColors = { PENDING: '#94a3b8', PARTIAL: '#f59e0b', PAID: '#10b981', OVERDUE: '#ef4444', WAIVED: '#7c3aed' };

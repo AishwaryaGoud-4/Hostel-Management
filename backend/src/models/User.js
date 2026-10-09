@@ -17,6 +17,18 @@ const userSchema = new mongoose.Schema(
     isActive: { type: Boolean, default: true },
     isEmailVerified: { type: Boolean, default: false },
     refreshToken: { type: String, select: false },
+    refreshSessions: {
+      type: [{
+        _id: false,
+        hash: String,
+        family: String,
+        expiresAt: Date,
+        userAgent: String,
+        createdAt: { type: Date, default: Date.now },
+      }],
+      select: false,
+      default: undefined,
+    },
     passwordResetToken: { type: String, select: false },
     passwordResetExpiry: { type: Date, select: false },
     studentProfile: {
@@ -51,6 +63,7 @@ const userSchema = new mongoose.Schema(
       transform: (_doc, ret) => {
         delete ret.password;
         delete ret.refreshToken;
+        delete ret.refreshSessions;
         delete ret.passwordResetToken;
         delete ret.passwordResetExpiry;
         return ret;

@@ -75,18 +75,15 @@ export default function RoomAllocationPage() {
   // Real-time: auto-refresh when a new student registers
   useEffect(() => {
     if (!socket) return;
-    const onStudentRegistered = (newStudent) => {
-      toast(`New student registered: ${newStudent.firstName} ${newStudent.lastName}`, { icon: '👤', duration: 4000 });
-      loadUnassigned();
-    };
-    const onStudentAdded = () => { loadUnassigned(); };
+    const onStudentRegistered = () => { loadUnassigned(); loadAssigned(); };
+    const onStudentAdded = () => { loadUnassigned(); loadAssigned(); };
     socket.on('student:registered', onStudentRegistered);
     socket.on('student:added', onStudentAdded);
     return () => {
       socket.off('student:registered', onStudentRegistered);
       socket.off('student:added', onStudentAdded);
     };
-  }, [socket, loadUnassigned]);
+  }, [socket, loadUnassigned, loadAssigned]);
 
   const refreshAll = () => { loadUnassigned(); loadAssigned(); if (selectedHostel) loadRooms(selectedHostel); };
 

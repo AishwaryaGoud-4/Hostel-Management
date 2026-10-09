@@ -11,6 +11,20 @@ const {
   serializeRoomListItem,
 } = require('../utils/roomHelpers');
 const { emitRoomSync } = require('../utils/roomEvents');
+const { notifyUser } = require('../utils/realtime');
+
+async function announceAllocation(req, studentId, room) {
+  const io = req.app.get('io');
+  if (!io) return;
+  const student = await User.findById(studentId);
+  const summary = serializeRoomListItem(room);
+  emitRoomSync(io, { type: 'room:allocated', user: student, room: summary });
+  await notifyUser(io, studentId, {
+    senderId: req.user.userId, type: 'ROOM',
+    title: 'Room assigned', message: `You have been assigned room ${summary.roomId || room.roomNumber}.`,
+    data: { roomId: room._id },
+  });
+}
 
 // ===== HOSTEL =====
 exports.createHostel = async (req, res) => {
@@ -276,11 +290,7 @@ exports.autoAllocateRoom = async (req, res) => {
     });
 
     // Socket notification
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`user_${studentId}`).emit('room:allocated', { room: bestRoom });
-      io.to(`hostel_${hostelId}`).emit('room:updated', { room: bestRoom });
-    }
+    await announceAllocation(req, studentId, bestRoom);
 
     res.status(200).json({
       success: true,
@@ -370,11 +380,7 @@ exports.reassignRoom = async (req, res) => {
     await session.commitTransaction();
 
     // Socket notification
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`user_${studentId}`).emit('room:allocated', { room: newRoom });
-      io.to(`hostel_${newRoom.hostelId}`).emit('room:updated', { room: newRoom });
-    }
+    await announceAllocation(req, studentId, newRoom);
 
     res.status(200).json({ success: true, message: `Room reassigned to ${newRoom.roomNumber}`, data: { room: newRoom } });
   } catch (e) { await session.abortTransaction(); res.status(500).json({ success: false, message: 'Reassignment failed', error: e.message }); }

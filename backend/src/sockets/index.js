@@ -2,85 +2,76 @@ const jwt = require('jsonwebtoken');
 const config = require('../config');
 const User = require('../models/User');
 const Hostel = require('../models/Hostel');
+const { notifyRoles, MANAGEMENT_ROLES } = require('../utils/realtime');
 
 const setupSocket = (io) => {
-  // Auth middleware for socket connections
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.replace('Bearer ', '');
     if (!token) return next(new Error('Authentication required'));
+    let decoded;
     try {
-      const decoded = jwt.verify(token, config.jwt.accessSecret);
+      decoded = jwt.verify(token, config.jwt.accessSecret);
+    } catch {
+      return next(new Error('Invalid token'));
+    }
+    try {
+      const user = await User.findById(decoded.userId).select('isActive role studentProfile.hostelId firstName lastName');
+      if (!user || user.isActive === false) return next(new Error('Account inactive'));
       socket.user = decoded;
+      socket.account = user;
       next();
-    } catch (e) {
-      next(new Error('Invalid token'));
+    } catch (error) {
+      next(new Error('Authentication failed'));
     }
   });
 
   io.on('connection', async (socket) => {
-    console.log(`🔌 User connected: ${socket.user.email} (${socket.user.role})`);
+    const { userId, role, email } = socket.user;
+    console.log(`🔌 User connected: ${email} (${role})`);
 
-    // Join personal room
-    socket.join(`user_${socket.user.userId}`);
+    socket.join(`user_${userId}`);
+    socket.join(`role_${role}`);
 
-    // Join role-based rooms
-    socket.join(`role_${socket.user.role}`);
-
-    // Auto-join hostel rooms based on role
     try {
-      if (socket.user.role === 'WARDEN') {
-        // Find hostels managed by this warden
-        const hostels = await Hostel.find({ wardenId: socket.user.userId, isActive: true });
-        hostels.forEach(h => {
-          socket.join(`hostel_${h._id}`);
-          console.log(`  → Warden ${socket.user.email} auto-joined hostel_${h._id} (${h.name})`);
-        });
-      } else if (socket.user.role === 'STUDENT') {
-        // Find student's hostel
-        const student = await User.findById(socket.user.userId);
-        if (student?.studentProfile?.hostelId) {
-          socket.join(`hostel_${student.studentProfile.hostelId}`);
-          console.log(`  → Student ${socket.user.email} auto-joined hostel_${student.studentProfile.hostelId}`);
-        }
-      } else if (socket.user.role === 'SUPER_ADMIN') {
-        // Admin joins all hostels
-        const allHostels = await Hostel.find({ isActive: true });
-        allHostels.forEach(h => {
-          socket.join(`hostel_${h._id}`);
-        });
-        console.log(`  → Admin ${socket.user.email} joined all ${allHostels.length} hostel rooms`);
+      if (role === 'WARDEN') {
+        const hostels = await Hostel.find({ wardenId: userId, isActive: true }).select('_id');
+        hostels.forEach((h) => socket.join(`hostel_${h._id}`));
+      } else if (role === 'SUPER_ADMIN' || role === 'STAFF') {
+        const hostels = await Hostel.find({ isActive: true }).select('_id');
+        hostels.forEach((h) => socket.join(`hostel_${h._id}`));
+      } else if (role === 'STUDENT' && socket.account.studentProfile?.hostelId) {
+        socket.join(`hostel_${socket.account.studentProfile.hostelId}`);
       }
     } catch (err) {
       console.error('  ⚠ Error auto-joining hostel rooms:', err.message);
     }
 
-    // Manual hostel join (backup)
     socket.on('join:hostel', (hostelId) => {
+      if (!MANAGEMENT_ROLES.includes(role) || !hostelId) return;
       socket.join(`hostel_${hostelId}`);
-      console.log(`  → ${socket.user.email} joined hostel_${hostelId}`);
     });
 
-    // Emergency SOS
-    socket.on('emergency:sos', (data) => {
-      io.to('role_SUPER_ADMIN').to('role_WARDEN').emit('emergency:sos', {
-        ...data,
-        from: socket.user,
+    socket.on('emergency:sos', async (data = {}, ack) => {
+      const name = `${socket.account.firstName} ${socket.account.lastName}`.trim();
+      const alert = {
+        message: String(data.message || 'Emergency! Immediate help needed.').slice(0, 300),
+        location: data.location ? String(data.location).slice(0, 120) : undefined,
+        from: { userId, email, role, name },
         timestamp: new Date(),
+      };
+      io.to(MANAGEMENT_ROLES.map((r) => `role_${r}`)).emit('emergency:sos', alert);
+      await notifyRoles(io, MANAGEMENT_ROLES, {
+        senderId: userId, type: 'EMERGENCY',
+        title: `SOS from ${name || email}`,
+        message: alert.location ? `${alert.message} · ${alert.location}` : alert.message,
+        data: { from: alert.from },
       });
-      console.log(`🚨 SOS from ${socket.user.email}:`, data);
-    });
-
-    // Typing indicators for live chat
-    socket.on('typing:start', (data) => {
-      socket.to(data.room).emit('typing:start', { userId: socket.user.userId, name: socket.user.email });
-    });
-
-    socket.on('typing:stop', (data) => {
-      socket.to(data.room).emit('typing:stop', { userId: socket.user.userId });
+      console.log(`🚨 SOS from ${email}:`, alert.message);
+      if (typeof ack === 'function') ack({ ok: true });
     });
 
     socket.on('disconnect', () => {
-      console.log(`🔌 User disconnected: ${socket.user.email}`);
+      console.log(`🔌 User disconnected: ${email}`);
     });
   });
 

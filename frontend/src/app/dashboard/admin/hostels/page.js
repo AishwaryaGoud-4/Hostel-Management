@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { FiPlus, FiEdit2, FiTrash2, FiMapPin, FiUsers } from 'react-icons/fi';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 export default function HostelsPage() {
   const [hostels, setHostels] = useState([]);
@@ -17,6 +18,7 @@ export default function HostelsPage() {
     if (res.success) setHostels(res.data.hostels);
   };
   useEffect(() => { load(); }, []);
+  useLiveRefresh(['room:updated', 'student:added', 'student:removed'], () => load());
 
   const loadRooms = async (hostelId) => {
     setSelectedHostel(hostelId);

@@ -5,6 +5,7 @@ import { FiAlertCircle, FiCheckCircle, FiClock, FiTool } from 'react-icons/fi';
 import api from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 /* ── Wanderlust Dusk tokens (mirrored for inline styles) ────── */
 const T = {
@@ -22,9 +23,10 @@ export default function StaffDashboard() {
   const reduced = useReducedMotion();
   const [complaints, setComplaints] = useState([]);
 
-  useEffect(() => {
-    api.get('/complaints?limit=20').then(res => setComplaints(res.data?.complaints || [])).catch(() => {});
-  }, []);
+  const load = () => api.get('/complaints?limit=20').then(res => setComplaints(res.data?.complaints || [])).catch(() => {});
+
+  useEffect(() => { load(); }, []);
+  useLiveRefresh(['complaint:new', 'complaint:updated'], () => load());
 
   const assigned = complaints.filter(c => c.assignedTo === user?._id || c.assignedTo?._id === user?._id);
   const stats = [

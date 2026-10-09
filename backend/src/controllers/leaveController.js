@@ -1,8 +1,8 @@
 const LeaveRequest = require('../models/LeaveRequest');
-const Notification = require('../models/Notification');
 const ActivityLog = require('../models/ActivityLog');
 const User = require('../models/User');
 const { paginateQuery } = require('../utils/helpers');
+const { toManagement, toUser, notifyUser, notifyRoles } = require('../utils/realtime');
 
 const generateLeaveId = () => {
   const ts = Date.now().toString(36).toUpperCase();
@@ -33,11 +33,14 @@ exports.createLeave = async (req, res) => {
       ipAddress: req.ip, userAgent: req.headers['user-agent'],
     });
 
-    // Notify warden via socket
     const io = req.app.get('io');
-    if (io && hostelId) {
-      io.to(`hostel_${hostelId}`).emit('leave:new', leave);
-    }
+    toManagement(io, 'leave:new', leave);
+    toUser(io, req.user.userId, 'leave:updated', leave);
+    await notifyRoles(io, ['SUPER_ADMIN', 'WARDEN'], {
+      senderId: req.user.userId, type: 'GATE_PASS',
+      title: 'New leave request', message: `Leave ${leave.leaveId} is waiting for approval.`,
+      data: { leaveId: leave._id },
+    });
 
     res.status(201).json({ success: true, message: 'Leave request submitted', data: { leave } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
@@ -83,13 +86,6 @@ exports.approveLeave = async (req, res) => {
     leave.statusHistory.push({ status: 'APPROVED', changedBy: req.user.userId, remarks: remarks || 'Approved by warden' });
     await leave.save();
 
-    // Notify student
-    await Notification.create({
-      recipientId: leave.studentId, senderId: req.user.userId, type: 'GATE_PASS',
-      title: 'Leave Approved', message: `Your leave ${leave.leaveId} has been approved.`,
-      data: { leaveId: leave._id }, link: '/dashboard/student/leave',
-    });
-
     await ActivityLog.create({
       userId: req.user.userId, userRole: req.user.role, action: 'LEAVE_APPROVED',
       description: `Leave ${leave.leaveId} approved`,
@@ -98,10 +94,13 @@ exports.approveLeave = async (req, res) => {
     });
 
     const io = req.app.get('io');
-    if (io) {
-      io.to(`user_${leave.studentId}`).emit('leave:updated', leave);
-      io.to(`user_${leave.studentId}`).emit('notification:new', { title: 'Leave Approved', message: `Your leave ${leave.leaveId} has been approved.`, type: 'GATE_PASS' });
-    }
+    await notifyUser(io, leave.studentId, {
+      senderId: req.user.userId, type: 'GATE_PASS',
+      title: 'Leave approved', message: `Your leave ${leave.leaveId} has been approved.`,
+      data: { leaveId: leave._id },
+    });
+    toUser(io, leave.studentId, 'leave:updated', leave);
+    toManagement(io, 'leave:updated', leave);
 
     res.status(200).json({ success: true, message: 'Leave approved', data: { leave } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
@@ -120,11 +119,6 @@ exports.rejectLeave = async (req, res) => {
     leave.statusHistory.push({ status: 'REJECTED', changedBy: req.user.userId, remarks: reason || 'Rejected' });
     await leave.save();
 
-    await Notification.create({
-      recipientId: leave.studentId, senderId: req.user.userId, type: 'GATE_PASS',
-      title: 'Leave Rejected', message: `Your leave ${leave.leaveId} has been rejected: ${reason}`,
-    });
-
     await ActivityLog.create({
       userId: req.user.userId, userRole: req.user.role, action: 'LEAVE_REJECTED',
       description: `Leave ${leave.leaveId} rejected`,
@@ -133,10 +127,13 @@ exports.rejectLeave = async (req, res) => {
     });
 
     const io = req.app.get('io');
-    if (io) {
-      io.to(`user_${leave.studentId}`).emit('leave:updated', leave);
-      io.to(`user_${leave.studentId}`).emit('notification:new', { title: 'Leave Rejected', message: `Your leave ${leave.leaveId} was rejected.`, type: 'GATE_PASS' });
-    }
+    await notifyUser(io, leave.studentId, {
+      senderId: req.user.userId, type: 'GATE_PASS',
+      title: 'Leave rejected', message: `Your leave ${leave.leaveId} was rejected${reason ? `: ${reason}` : '.'}`,
+      data: { leaveId: leave._id },
+    });
+    toUser(io, leave.studentId, 'leave:updated', leave);
+    toManagement(io, 'leave:updated', leave);
 
     res.status(200).json({ success: true, message: 'Leave rejected', data: { leave } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
@@ -153,6 +150,7 @@ exports.cancelLeave = async (req, res) => {
     leave.status = 'CANCELLED';
     leave.statusHistory.push({ status: 'CANCELLED', changedBy: req.user.userId, remarks: 'Cancelled by student' });
     await leave.save();
+    toManagement(req.app.get('io'), 'leave:updated', leave);
 
     res.status(200).json({ success: true, message: 'Leave cancelled', data: { leave } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }

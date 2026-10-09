@@ -3,8 +3,8 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { FiPlus, FiAlertCircle } from 'react-icons/fi';
 import api from '@/lib/api';
-import { useAuthStore } from '@/store/authStore';
 import toast from 'react-hot-toast';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 /* ── Wanderlust Dusk tokens ──────────────────────────────────── */
 const T = {
@@ -19,7 +19,6 @@ const T = {
 };
 
 export default function StudentComplaintsPage() {
-  const { user } = useAuthStore();
   const [complaints, setComplaints] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', category: 'OTHER' });
@@ -30,14 +29,13 @@ export default function StudentComplaintsPage() {
     if (res?.success !== false) setComplaints(res.data?.complaints || res.data || []);
   };
   useEffect(() => { load(); }, []);
+  useLiveRefresh(['complaint:updated', 'complaint:status_change'], () => load());
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.title || !form.description) return toast.error('Fill all fields');
     setLoading(true);
-    const hostelId = typeof user?.studentProfile?.hostelId === 'object' ? user.studentProfile.hostelId._id : user?.studentProfile?.hostelId;
-    const roomId = typeof user?.studentProfile?.roomId === 'object' ? user.studentProfile.roomId._id : user?.studentProfile?.roomId;
-    const res = await api.post('/complaints', { ...form, hostelId: hostelId || '000000000000000000000000', roomId: roomId || '000000000000000000000000' });
+    const res = await api.post('/complaints', form);
     if (res?.success !== false) { toast.success('Complaint submitted!'); setShowForm(false); setForm({ title: '', description: '', category: 'OTHER' }); load(); }
     else toast.error(res?.message || 'Failed to submit');
     setLoading(false);
@@ -125,7 +123,7 @@ export default function StudentComplaintsPage() {
         )})}
         {complaints.length === 0 && (
           <div className="glass" style={{ padding: 40, borderRadius: 16, textAlign: 'center' }}>
-            <FiAlertCircle size={40} color={T.textMuted} style={{ marginBottom: 12 }} />
+            <FiAlertCircle size={40} color={T.textMuted} style={{ display: 'block', margin: '0 auto 12px' }} />
             <p style={{ color: 'var(--color-text-muted)' }}>No complaints filed yet.</p>
           </div>
         )}

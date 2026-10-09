@@ -10,6 +10,7 @@ import {
 } from 'react-icons/hi2';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 const STATUS_CLASSES = {
   OPEN: 'badge-open', IN_PROGRESS: 'badge-progress',
@@ -39,6 +40,8 @@ export default function WardenComplaintsPage() {
   };
 
   useEffect(() => { load(); }, [filter.status, filter.priority]);
+
+  useLiveRefresh(['complaint:new', 'complaint:updated'], () => load());
 
   const updateStatus = async () => {
     if (!statusUpdate.status) return toast.error('Select a status');

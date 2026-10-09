@@ -33,7 +33,7 @@ function Section({ title, icon: Icon, delay = 0, children }) {
         <div className="icon-box icon-box-sm" style={{ background: 'rgba(37,99,235,0.12)' }}>
           <Icon size={17} color="var(--color-primary-light)" />
         </div>
-        <h2 style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Fraunces', serif" }}>{title}</h2>
+        <h2 style={{ fontSize: 15, fontWeight: 700, fontFamily: 'inherit' }}>{title}</h2>
       </div>
       {children}
     </motion.div>
@@ -123,13 +123,13 @@ export default function ProfilePage() {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 26, fontWeight: 800, color: 'white',
             boxShadow: '0 0 24px rgba(37,99,235,0.35)',
-            fontFamily: "'Fraunces', serif",
+            fontFamily: 'inherit',
           }}>
             {user?.firstName?.[0]}{user?.lastName?.[0]}
           </div>
 
           <div style={{ flex: 1 }}>
-            <h1 style={{ fontSize: 'clamp(18px, 3vw, 24px)', fontWeight: 700, fontFamily: "'Fraunces', serif" }}>
+            <h1 style={{ fontSize: 'clamp(18px, 3vw, 24px)', fontWeight: 700, fontFamily: 'inherit' }}>
               {user?.firstName} {user?.lastName}
             </h1>
             <p style={{ color: 'var(--color-text-muted)', fontSize: 13, marginTop: 4 }}>{user?.email}</p>

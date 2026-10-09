@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { FiSearch, FiFilter, FiUser, FiMail, FiPhone, FiEdit2, FiTrash2 } from 'react-icons/fi';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
@@ -28,6 +29,8 @@ export default function UsersPage() {
   };
 
   useEffect(() => { load(); }, [filters.role, filters.page]);
+
+  useLiveRefresh(['user:added', 'user:updated', 'user:removed', 'student:registered'], () => load());
 
   const handleSearch = (e) => {
     e.preventDefault();

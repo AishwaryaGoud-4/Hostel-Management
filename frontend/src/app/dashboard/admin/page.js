@@ -15,6 +15,7 @@ import api from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { useCountUp } from '@/hooks/useCountUp';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 /* ── Wanderlust Dusk chart tokens ─────────────────────────────
    All colours reference the design system. CSS custom properties
@@ -84,19 +85,21 @@ export default function AdminDashboard() {
   const [complaintStats, setComplaintStats] = useState(null);
   const [feeStats, setFeeStats] = useState(null);
 
-  useEffect(() => {
-    const load = async () => {
-      const [hostelRes, complaintRes, feeRes] = await Promise.all([
-        api.get('/hostels/stats').catch(() => ({ data: {} })),
-        api.get('/complaints/stats').catch(() => ({ data: {} })),
-        api.get('/fees/stats').catch(() => ({ data: {} })),
-      ]);
-      setStats(hostelRes.data?.overview || {});
-      setComplaintStats(complaintRes.data || {});
-      setFeeStats(feeRes.data || {});
-    };
-    load();
-  }, []);
+  const load = async () => {
+    const [hostelRes, complaintRes, feeRes] = await Promise.all([
+      api.get('/hostels/stats').catch(() => ({ data: {} })),
+      api.get('/complaints/stats').catch(() => ({ data: {} })),
+      api.get('/fees/stats').catch(() => ({ data: {} })),
+    ]);
+    setStats(hostelRes.data?.overview || {});
+    setComplaintStats(complaintRes.data || {});
+    setFeeStats(feeRes.data || {});
+  };
+
+  useEffect(() => { load(); }, []);
+  useLiveRefresh([
+    'complaint:new', 'complaint:updated', 'fee:updated', 'user:added', 'user:removed', 'room:updated',
+  ], () => load());
 
   const complaintPieData = complaintStats?.byStatus?.map((s) => ({ name: s._id, value: s.count })) || [];
   const categoryData = complaintStats?.byCategory?.map((c) => ({ name: c._id, value: c.count })) || [];

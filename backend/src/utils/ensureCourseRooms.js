@@ -1,15 +1,39 @@
 const Hostel = require('../models/Hostel');
 const Room = require('../models/Room');
+const User = require('../models/User');
 const { STUDENT_COURSES } = require('../constants/courses');
 const { formatCourseRoomId } = require('./courseRoomId');
 
 const ROOMS_PER_COURSE = 20;
 const DEFAULT_CAPACITY = 4;
 
+async function createDefaultHostel(code) {
+  const owner = await User.findOne({ role: { $in: ['WARDEN', 'SUPER_ADMIN'] }, isActive: true }).sort({ role: -1, createdAt: 1 });
+  if (!owner) return null;
+  try {
+    return await Hostel.create({
+      name: 'Main Hostel',
+      code,
+      type: 'CO_ED',
+      address: 'Main Campus',
+      totalFloors: 1,
+      totalRooms: 1,
+      totalBeds: 1,
+      wardenId: owner._id,
+      contactNumber: owner.phone || '0000000000',
+      geoLocation: { latitude: 0, longitude: 0 },
+    });
+  } catch (err) {
+    if (err.code === 11000) return Hostel.findOne({ code });
+    throw err;
+  }
+}
+
 async function resolveCourseHostelId() {
   const code = process.env.COURSE_ROOM_HOSTEL_CODE || 'VBH';
   let hostel = await Hostel.findOne({ code, isActive: true });
   if (!hostel) hostel = await Hostel.findOne({ isActive: true }).sort({ createdAt: 1 });
+  if (!hostel) hostel = await createDefaultHostel(code);
   return hostel?._id ?? null;
 }
 
@@ -19,7 +43,10 @@ async function resolveCourseHostelId() {
 async function ensureCourseRooms() {
   const hostelId = await resolveCourseHostelId();
   if (!hostelId) {
-    return { ok: false, message: 'No active hostel found to attach course rooms.' };
+    return {
+      ok: false,
+      message: 'The hostel is not set up yet. Ask the administrator to run "npm run seed" in the backend, or create a warden and hostel first.',
+    };
   }
 
   let created = 0;

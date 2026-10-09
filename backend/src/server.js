@@ -39,7 +39,14 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 // Global rate limiter
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }));
+// Live dashboards refetch on every socket event, and a hostel's students often share one public IP.
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_MAX) || 5000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many requests. Please slow down and try again shortly.' },
+}));
 
 // Health check / Root route
 app.get(['/', '/api/health'], (req, res) => {

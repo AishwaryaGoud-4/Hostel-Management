@@ -8,6 +8,7 @@ import { useSocket } from '@/store/socketProvider';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import LiveDot from '@/components/ui/LiveDot';
 import toast from 'react-hot-toast';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 /* ── Wanderlust Dusk tokens (mirrored for inline styles) ────── */
 const T = {
@@ -58,10 +59,15 @@ export default function WardenDashboard() {
 
   useEffect(() => { loadData(); }, []);
 
-  // Real-time listeners
+  useLiveRefresh([
+    'complaint:new', 'complaint:updated', 'gatepass:new', 'gatepass:updated', 'student:updated', 'student:removed',
+    'room:updated', 'attendance:updated', 'attendance:bulk-updated', 'attendance:student-marked',
+  ], () => loadData());
+
+  // Keeps the "recent arrivals" list current; toasts come from the notification feed.
   useEffect(() => {
     if (!socket) return;
-    const refresh = (event, notify) => {
+    const onStudent = (event) => {
       loadData();
       const student = event?.user || event?.student || event;
       const name = student?.firstName ? `${student.firstName} ${student.lastName || ''}`.trim() : null;
@@ -71,23 +77,14 @@ export default function WardenDashboard() {
         const next = { id: `${name}-${roomId || 'room'}`, name, roomId, course: student?.studentProfile?.course || event?.room?.course };
         return [next, ...list.filter((item) => item.name !== name)].slice(0, 6);
       });
-      if (notify) toast(roomId ? `${name} allocated to ${roomId}` : `${name} joined the hostel`, { icon: '🛏️' });
     };
-    const onStudent = (event) => refresh(event, false);
-    const onAllocated = (event) => refresh(event, true);
     socket.on('student:added', onStudent);
     socket.on('student:registered', onStudent);
-    socket.on('room:allocated', onAllocated);
-    socket.on('room:updated', () => loadData());
-    socket.on('attendance:updated', () => loadData());
-    socket.on('attendance:bulk-updated', () => loadData());
+    socket.on('room:allocated', onStudent);
     return () => {
       socket.off('student:added', onStudent);
       socket.off('student:registered', onStudent);
-      socket.off('room:allocated', onAllocated);
-      socket.off('room:updated');
-      socket.off('attendance:updated');
-      socket.off('attendance:bulk-updated');
+      socket.off('room:allocated', onStudent);
     };
   }, [socket]);
 

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { SocketProvider } from '@/store/socketProvider';
 import { useThemeStore } from '@/store/themeStore';
+import InteractionLayer from '@/components/ui/InteractionLayer';
 
 export default function Providers({ children }) {
   const [mounted, setMounted] = useState(false);
@@ -24,6 +25,7 @@ export default function Providers({ children }) {
       <SocketProvider>
         {children}
       </SocketProvider>
+      <InteractionLayer />
       {mounted && (
         <Toaster
           position="top-right"

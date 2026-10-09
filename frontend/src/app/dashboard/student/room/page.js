@@ -252,7 +252,7 @@ export default function MyRoomPage() {
     return (
       <div>
         <header style={{ marginBottom: 24 }}>
-          <h1 style={{ fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-display, Fraunces, serif)' }}>
+          <h1 style={{ fontSize: 26, fontWeight: 800, fontFamily: 'inherit' }}>
             <span className="gradient-text">My Room</span>
           </h1>
           <p style={{ color: 'var(--color-text-muted)', fontSize: 14, marginTop: 6 }}>
@@ -272,7 +272,7 @@ export default function MyRoomPage() {
           }}
         >
           <div style={{ fontSize: 48, marginBottom: 16 }}>🏠</div>
-          <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 10, fontFamily: 'var(--font-display, Fraunces, serif)' }}>
+          <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 10, fontFamily: 'inherit' }}>
             {backendMissingRoutes ? 'Room API Not Available' : 'Room Not Assigned Yet'}
           </h2>
           {backendMissingRoutes ? (
@@ -329,7 +329,7 @@ export default function MyRoomPage() {
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto' }}>
       <header style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-display, Fraunces, serif)' }}>
+        <h1 style={{ fontSize: 26, fontWeight: 800, fontFamily: 'inherit' }}>
           <span className="gradient-text">My Room</span>
         </h1>
         <p style={{ color: 'var(--color-text-muted)', fontSize: 14, marginTop: 6 }}>
@@ -383,7 +383,7 @@ export default function MyRoomPage() {
             fontWeight: 800,
             letterSpacing: 1,
             marginBottom: 4,
-            fontFamily: 'var(--font-display, Fraunces, serif)',
+            fontFamily: 'inherit',
           }}
           className="gradient-text"
         >

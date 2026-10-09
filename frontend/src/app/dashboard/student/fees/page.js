@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { FiDollarSign, FiClock, FiCheckCircle, FiAlertTriangle } from 'react-icons/fi';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 /* ── Wanderlust Dusk tokens ──────────────────────────────────── */
 const T = {
@@ -42,6 +43,8 @@ export default function StudentFeesPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  useLiveRefresh(['fee:updated'], () => load());
 
   const handlePay = async (e) => {
     e.preventDefault();

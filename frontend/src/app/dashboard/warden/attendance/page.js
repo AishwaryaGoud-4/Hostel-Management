@@ -110,7 +110,7 @@ export default function WardenAttendancePage() {
   // Socket: real-time student additions
   useEffect(() => {
     if (!socket) return;
-    const onStudentAdded = () => { loadStudents(); toast('New student added!', { icon: '👤' }); };
+    const onStudentAdded = () => { loadStudents(); };
     const onStudentMarked = (data) => {
       setAttendance(prev => ({ ...prev, [data.studentId]: data.status }));
       toast(`${data.method} check-in received`, { icon: '📱' });

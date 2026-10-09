@@ -1,11 +1,23 @@
 const QRCode = require('qrcode');
 const GatePass = require('../models/GatePass');
-const Notification = require('../models/Notification');
+const User = require('../models/User');
 const { generatePassId, paginateQuery } = require('../utils/helpers');
+const { toManagement, toUser, notifyUser, notifyRoles } = require('../utils/realtime');
+
+const broadcastPass = (io, pass, extraEvent) => {
+  toUser(io, pass.studentId, 'gatepass:updated', pass);
+  if (extraEvent) toUser(io, pass.studentId, extraEvent, pass);
+  toManagement(io, 'gatepass:updated', pass);
+};
 
 exports.createGatePass = async (req, res) => {
   try {
-    const { type, hostelId, visitorDetails, outingDetails, leaveDetails, expiresAt } = req.body;
+    const { type, visitorDetails, outingDetails, leaveDetails, expiresAt } = req.body;
+    const student = await User.findById(req.user.userId).select('studentProfile.hostelId');
+    const hostelId = student?.studentProfile?.hostelId;
+    if (!hostelId) {
+      return res.status(400).json({ success: false, message: 'You need to be assigned to a hostel before requesting a gate pass.' });
+    }
     const passId = generatePassId();
     const qrCode = await QRCode.toDataURL(JSON.stringify({ passId, studentId: req.user.userId, type, createdAt: Date.now() }));
 
@@ -15,10 +27,15 @@ exports.createGatePass = async (req, res) => {
       expiresAt: new Date(expiresAt || Date.now() + 24 * 60 * 60 * 1000),
     });
 
-    // Notify warden
-    if (req.app.get('io')) {
-      req.app.get('io').to(`hostel_${hostelId}`).emit('gatepass:new', pass);
-    }
+    const io = req.app.get('io');
+    toManagement(io, 'gatepass:new', pass);
+    toUser(io, req.user.userId, 'gatepass:updated', pass);
+    await notifyRoles(io, ['SUPER_ADMIN', 'WARDEN', 'STAFF'], {
+      senderId: req.user.userId, type: 'GATE_PASS',
+      title: `New ${type.toLowerCase()} gate pass request`,
+      message: `Pass ${passId} is waiting for approval.`,
+      data: { passId: pass._id },
+    });
 
     res.status(201).json({ success: true, message: 'Gate pass created', data: { pass } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
@@ -34,15 +51,13 @@ exports.approveGatePass = async (req, res) => {
     pass.approvedAt = new Date();
     await pass.save();
 
-    await Notification.create({
-      recipientId: pass.studentId, senderId: req.user.userId, type: 'GATE_PASS',
-      title: 'Gate Pass Approved', message: `Your ${pass.type} pass ${pass.passId} has been approved.`,
-      data: { passId: pass._id }, link: `/gate-passes/${pass._id}`,
+    const io = req.app.get('io');
+    await notifyUser(io, pass.studentId, {
+      senderId: req.user.userId, type: 'GATE_PASS',
+      title: 'Gate pass approved', message: `Your ${pass.type.toLowerCase()} pass ${pass.passId} has been approved.`,
+      data: { passId: pass._id },
     });
-
-    if (req.app.get('io')) {
-      req.app.get('io').to(`user_${pass.studentId}`).emit('gatepass:approved', pass);
-    }
+    broadcastPass(io, pass, 'gatepass:approved');
 
     res.status(200).json({ success: true, message: 'Approved', data: { pass } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
@@ -58,10 +73,13 @@ exports.rejectGatePass = async (req, res) => {
     pass.rejectionReason = reason;
     await pass.save();
 
-    await Notification.create({
-      recipientId: pass.studentId, senderId: req.user.userId, type: 'GATE_PASS',
-      title: 'Gate Pass Rejected', message: `Your pass ${pass.passId} was rejected: ${reason}`,
+    const io = req.app.get('io');
+    await notifyUser(io, pass.studentId, {
+      senderId: req.user.userId, type: 'GATE_PASS',
+      title: 'Gate pass rejected', message: `Your pass ${pass.passId} was rejected${reason ? `: ${reason}` : '.'}`,
+      data: { passId: pass._id },
     });
+    broadcastPass(io, pass, 'gatepass:rejected');
 
     res.status(200).json({ success: true, message: 'Rejected', data: { pass } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
@@ -98,10 +116,14 @@ exports.verifyGatePass = async (req, res) => {
       pass.status = 'EXPIRED'; await pass.save();
       return res.status(400).json({ success: false, message: 'Pass expired' });
     }
-    // Mark as used
     if (!pass.checkOutTime) { pass.checkOutTime = new Date(); }
     else { pass.checkInTime = new Date(); pass.status = 'USED'; }
     await pass.save();
+
+    const io = req.app.get('io');
+    toUser(io, pass.studentId._id, 'gatepass:updated', pass);
+    toManagement(io, 'gatepass:updated', pass);
+
     res.status(200).json({ success: true, message: 'Pass verified', data: { pass } });
   } catch (e) { res.status(500).json({ success: false, message: 'Failed', error: e.message }); }
 };

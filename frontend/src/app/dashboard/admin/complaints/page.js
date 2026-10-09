@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { FiFilter, FiAlertCircle, FiCpu } from 'react-icons/fi';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { useLiveRefresh } from '@/hooks/useLiveRefresh';
 
 export default function AdminComplaintsPage() {
   const [complaints, setComplaints] = useState([]);
@@ -20,6 +21,7 @@ export default function AdminComplaintsPage() {
     if (res.success) { setComplaints(res.data.complaints); setPagination(res.pagination || {}); }
   };
   useEffect(() => { load(); }, [filters.status, filters.priority, filters.category, filters.page]);
+  useLiveRefresh(['complaint:new', 'complaint:updated'], () => load());
 
   const updateStatus = async () => {
     if (!selected || !statusUpdate.status) return;
