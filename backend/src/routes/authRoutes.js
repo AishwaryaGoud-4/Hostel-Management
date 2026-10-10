@@ -3,11 +3,12 @@ const rateLimit = require('express-rate-limit');
 const auth = require('../controllers/authController');
 const { requireAny, requireAdmin } = require('../middleware/auth');
 
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: { success: false, message: 'Too many attempts. Try again later.' } });
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, validate: { trustProxy: false }, message: { success: false, message: 'Too many attempts. Try again later.' } });
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   skipSuccessfulRequests: true,
+  validate: { trustProxy: false },
   message: { success: false, message: 'Too many failed login attempts. Try again in 15 minutes.' },
 });
 

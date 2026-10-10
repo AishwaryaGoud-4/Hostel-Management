@@ -31,6 +31,9 @@ const io = new Server(server, {
 setupSocket(io);
 app.set('io', io);
 
+// Render (and the Vercel /api rewrite) sit in front of the app; without this every user shares one rate-limit IP.
+app.set('trust proxy', true);
+
 // Global middleware
 app.use(helmet());
 app.use(cors({ origin: config.corsOrigin, credentials: true }));
@@ -45,6 +48,7 @@ app.use(rateLimit({
   max: Number(process.env.RATE_LIMIT_MAX) || 5000,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false },
   message: { success: false, message: 'Too many requests. Please slow down and try again shortly.' },
 }));
 
