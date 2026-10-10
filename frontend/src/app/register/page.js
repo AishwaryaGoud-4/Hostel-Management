@@ -401,6 +401,13 @@ export default function RegisterPage() {
             <Link href="/login" style={{ color: 'var(--color-primary-light)', textDecoration: 'none', fontWeight: 600 }}>
               Sign In
             </Link>
+            <br />
+            <span style={{ fontSize: 13 }}>
+              Are you a warden?{' '}
+              <Link href="/register/warden" style={{ color: 'var(--color-primary-light)', textDecoration: 'none', fontWeight: 600 }}>
+                Apply for a warden account
+              </Link>
+            </span>
           </p>
         )}
       </motion.div>

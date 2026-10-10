@@ -28,9 +28,28 @@ export default function UsersPage() {
     }
   };
 
-  useEffect(() => { load(); }, [filters.role, filters.page]);
+  const [pending, setPending] = useState([]);
+  const [reviewing, setReviewing] = useState(null);
 
-  useLiveRefresh(['user:added', 'user:updated', 'user:removed', 'student:registered'], () => load());
+  const loadPending = async () => {
+    const res = await api.get('/auth/users?approvalStatus=PENDING&limit=50');
+    if (res.success) setPending(res.data.users);
+  };
+
+  useEffect(() => { load(); }, [filters.role, filters.page]);
+  useEffect(() => { loadPending(); }, []);
+
+  useLiveRefresh(['user:added', 'user:updated', 'user:removed', 'student:registered'], () => { load(); loadPending(); });
+
+  const review = async (u, approve) => {
+    setReviewing(u._id);
+    const res = await api.put(`/auth/users/${u._id}/review`, { approve });
+    setReviewing(null);
+    if (res.success) toast.success(res.message);
+    else toast.error(res.message || 'Could not update the request');
+    load();
+    loadPending();
+  };
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -83,6 +102,40 @@ export default function UsersPage() {
           <p style={{ color: 'var(--color-text-muted)', fontSize: 14, marginTop: 4 }}>Add students to allocate a course room automatically</p>
         </div>
       </div>
+
+      {pending.length > 0 && (
+        <section className="glass" aria-label="Pending warden requests"
+          style={{ padding: 16, borderRadius: 16, marginBottom: 20, border: '1px solid rgba(124,58,237,0.35)' }}>
+          <h2 style={{ fontSize: 15, fontWeight: 800, marginBottom: 12 }}>
+            Pending warden requests <span style={{ color: '#a78bfa' }}>({pending.length})</span>
+          </h2>
+          <div style={{ display: 'grid', gap: 10 }}>
+            {pending.map((u) => (
+              <div key={u._id} className="pending-warden"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '10px 12px', borderRadius: 12, background: 'rgba(124,58,237,0.08)' }}>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ fontWeight: 700, fontSize: 14 }}>{u.firstName} {u.lastName}</p>
+                  <p style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+                    {u.email} · {u.phone}
+                    {u.staffProfile?.employeeId ? ` · ${u.staffProfile.employeeId}` : ''}
+                    {u.staffProfile?.department ? ` · ${u.staffProfile.department}` : ''}
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" disabled={reviewing === u._id} onClick={() => review(u, true)}
+                    style={{ padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: 'rgba(16,185,129,0.18)', color: '#10b981' }}>
+                    Approve
+                  </button>
+                  <button type="button" disabled={reviewing === u._id} onClick={() => review(u, false)}
+                    style={{ padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}>
+                    Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <form onSubmit={addStudent} className="glass" style={{ padding: 16, borderRadius: 16, marginBottom: 20, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, alignItems: 'end' }}>
         <input className="input-field" required aria-label="First name" placeholder="First name" value={studentForm.firstName} onChange={(e) => setStudentForm({ ...studentForm, firstName: e.target.value })} />
@@ -157,15 +210,30 @@ export default function UsersPage() {
                     </span>
                   </td>
                   <td style={{ padding: '12px 16px' }}>
-                    <span style={{ padding: '3px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, background: u.isActive ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: u.isActive ? '#10b981' : '#ef4444' }}>
-                      {u.isActive ? 'Active' : 'Inactive'}
-                    </span>
+                    {u.approvalStatus === 'PENDING' || u.approvalStatus === 'REJECTED' ? (
+                      <span style={{ padding: '3px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, background: 'rgba(124,58,237,0.15)', color: '#a78bfa' }}>
+                        {u.approvalStatus === 'PENDING' ? 'Pending approval' : 'Rejected'}
+                      </span>
+                    ) : (
+                      <span style={{ padding: '3px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, background: u.isActive ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: u.isActive ? '#10b981' : '#ef4444' }}>
+                        {u.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    )}
                   </td>
                   <td style={{ padding: '12px 16px' }}>
-                    <button onClick={() => toggleActive(u._id, u.isActive)}
-                      style={{ padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, background: u.isActive ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)', color: u.isActive ? '#ef4444' : '#10b981' }}>
-                      {u.isActive ? 'Deactivate' : 'Activate'}
-                    </button>
+                    {u.role === 'SUPER_ADMIN' ? (
+                      <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>Main admin</span>
+                    ) : u.approvalStatus === 'PENDING' ? (
+                      <button onClick={() => review(u, true)} disabled={reviewing === u._id}
+                        style={{ padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>
+                        Approve
+                      </button>
+                    ) : (
+                      <button onClick={() => toggleActive(u._id, u.isActive)}
+                        style={{ padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, background: u.isActive ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)', color: u.isActive ? '#ef4444' : '#10b981' }}>
+                        {u.isActive ? 'Deactivate' : 'Activate'}
+                      </button>
+                    )}
                   </td>
                 </motion.tr>
               ))}

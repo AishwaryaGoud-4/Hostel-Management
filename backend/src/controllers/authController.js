@@ -69,22 +69,33 @@ const clearTokenCookies = (res) => {
 };
 
 exports.register = async (req, res) => {
-  const effectiveRole = req.body?.role || 'STUDENT';
-  if (effectiveRole === 'STUDENT') {
-    const seeded = await ensureCourseRooms(req.body?.studentProfile?.course);
-    if (!seeded.ok) {
-      return res.status(400).json({ success: false, message: seeded.message });
-    }
+  // Public sign-up creates students only; wardens apply via /register/warden and the admin comes from the admin script.
+  if (req.body?.role && req.body.role !== 'STUDENT') {
+    return res.status(403).json({ success: false, message: 'Only students can sign up here. Wardens can apply on the warden registration page.' });
+  }
+  const seeded = await ensureCourseRooms(req.body?.studentProfile?.course);
+  if (!seeded.ok) {
+    return res.status(400).json({ success: false, message: seeded.message });
   }
 
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const { firstName, lastName, email, password, phone, role, studentProfile, staffProfile } = req.body;
-    const effectiveRole = role || 'STUDENT';
-    const isStudent = effectiveRole === 'STUDENT';
+    const { firstName, lastName, email, password, phone, studentProfile } = req.body;
+    const effectiveRole = 'STUDENT';
+    const isStudent = true;
+    const staffProfile = undefined;
 
-    const existing = await User.findOne({ email });
+    if (!firstName || !email || !password || !phone) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'Name, email, phone and password are required.' });
+    }
+    if (String(password).length < 8) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters.' });
+    }
+
+    const existing = await User.findOne({ email: String(email).toLowerCase().trim() });
     if (existing) {
       await session.abortTransaction();
       return res.status(409).json({ success: false, message: 'Email already registered' });
@@ -200,6 +211,77 @@ exports.register = async (req, res) => {
   }
 };
 
+exports.registerWarden = async (req, res) => {
+  try {
+    const { firstName, lastName, email, password, phone, employeeId, department } = req.body || {};
+    if (!firstName || !lastName || !email || !password || !phone) {
+      return res.status(400).json({ success: false, message: 'Name, email, phone and password are required.' });
+    }
+    if (String(password).length < 8) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters.' });
+    }
+    const normalizedEmail = String(email).toLowerCase().trim();
+    if (await User.exists({ email: normalizedEmail })) {
+      return res.status(409).json({ success: false, message: 'Email already registered' });
+    }
+
+    const user = await User.create({
+      firstName,
+      lastName,
+      email: normalizedEmail,
+      password: await bcrypt.hash(password, 12),
+      phone,
+      role: 'WARDEN',
+      isActive: false,
+      approvalStatus: 'PENDING',
+      staffProfile: { employeeId, department },
+    });
+
+    const io = req.app.get('io');
+    if (io) {
+      toRoles(io, ['SUPER_ADMIN'], 'user:added', user.toJSON());
+      await notifyRoles(io, ['SUPER_ADMIN'], {
+        senderId: user._id,
+        type: 'SYSTEM',
+        title: 'Warden approval needed',
+        message: `${firstName} ${lastName} (${normalizedEmail}) applied for a warden account.`,
+        data: { userId: user._id },
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Application sent. You can sign in once the admin approves your warden account.',
+      data: { user: { _id: user._id, firstName, lastName, email: normalizedEmail, role: 'WARDEN', approvalStatus: 'PENDING' } },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Warden registration failed', error: error.message });
+  }
+};
+
+exports.reviewUser = async (req, res) => {
+  try {
+    const approve = req.body?.approve === true;
+    const user = await User.findOne({ _id: req.params.id, approvalStatus: 'PENDING' });
+    if (!user) return res.status(404).json({ success: false, message: 'No pending request for this user.' });
+
+    user.approvalStatus = approve ? 'APPROVED' : 'REJECTED';
+    user.isActive = approve;
+    await user.save();
+
+    const io = req.app.get('io');
+    if (io) toRoles(io, ['SUPER_ADMIN'], 'user:updated', user.toJSON());
+
+    res.status(200).json({
+      success: true,
+      message: approve ? `${user.firstName} can now sign in as a warden.` : `${user.firstName}'s request was rejected.`,
+      data: { user },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Review failed', error: error.message });
+  }
+};
+
 exports.createStudent = async (req, res) => {
   const coursePreview = req.body?.studentProfile?.course;
   if (isValidCourse(coursePreview)) {
@@ -309,11 +391,22 @@ exports.createStudent = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await User.findOne({ email: String(email || '').toLowerCase().trim(), isActive: true }).select('+password');
+    const user = await User.findOne({ email: String(email || '').toLowerCase().trim() }).select('+password');
     if (!user) return res.status(401).json({ success: false, message: 'Invalid credentials' });
 
-    const isValid = await bcrypt.compare(password, user.password);
+    const isValid = await bcrypt.compare(String(password || ''), user.password);
     if (!isValid) return res.status(401).json({ success: false, message: 'Invalid credentials' });
+
+    // Only revealed after a correct password, so this can't be used to probe which emails exist.
+    if (user.approvalStatus === 'PENDING') {
+      return res.status(403).json({ success: false, message: 'Your warden account is waiting for admin approval.' });
+    }
+    if (user.approvalStatus === 'REJECTED') {
+      return res.status(403).json({ success: false, message: 'Your warden application was not approved. Contact the hostel admin.' });
+    }
+    if (!user.isActive) {
+      return res.status(403).json({ success: false, message: 'Your account has been deactivated. Contact the hostel admin.' });
+    }
 
     const payload = { userId: user._id.toString(), role: user.role, email: user.email };
     const { accessToken, refreshToken } = generateTokens(payload);
@@ -434,10 +527,11 @@ exports.resetPassword = async (req, res) => {
 
 exports.getAllUsers = async (req, res) => {
   try {
-    const { role, search, page = 1, limit = 20, course, unassigned } = req.query;
+    const { role, search, page = 1, limit = 20, course, unassigned, approvalStatus } = req.query;
     const filter = {};
     const and = [];
     if (role) filter.role = role;
+    if (['APPROVED', 'PENDING', 'REJECTED'].includes(approvalStatus)) filter.approvalStatus = approvalStatus;
     if (course) filter['studentProfile.course'] = course;
     if (search) {
       and.push({
@@ -486,8 +580,13 @@ exports.updateUser = async (req, res) => {
     delete updates.refreshSessions;
     delete updates.passwordResetToken;
     delete updates.passwordResetExpiry;
-    const before = await User.findById(req.params.id).select('role isActive');
+    delete updates.approvalStatus;
+    const before = await User.findById(req.params.id).select('role isActive approvalStatus');
     if (!before) return res.status(404).json({ success: false, message: 'User not found' });
+    if (before.role === 'SUPER_ADMIN' || updates.role === 'SUPER_ADMIN') {
+      return res.status(403).json({ success: false, message: 'There is only one admin account, and it can only be changed with the admin script.' });
+    }
+    if (before.approvalStatus && before.approvalStatus !== 'APPROVED' && updates.isActive === true) updates.approvalStatus = 'APPROVED';
     const user = await User.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
@@ -511,6 +610,11 @@ exports.updateUser = async (req, res) => {
 
 exports.deleteUser = async (req, res) => {
   try {
+    const target = await User.findById(req.params.id).select('role');
+    if (!target) return res.status(404).json({ success: false, message: 'User not found' });
+    if (target.role === 'SUPER_ADMIN') {
+      return res.status(403).json({ success: false, message: 'The admin account cannot be deactivated.' });
+    }
     const user = await User.findByIdAndUpdate(req.params.id, { isActive: false }, { new: true });
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
     await endAllSessions(user._id);

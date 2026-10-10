@@ -12,6 +12,8 @@ const loginLimiter = rateLimit({
 });
 
 router.post('/register', authLimiter, auth.register);
+router.post('/register/warden', authLimiter, auth.registerWarden);
+router.put('/users/:id/review', requireAdmin, auth.reviewUser);
 router.post('/students', requireAdmin, auth.createStudent);
 router.post('/login', loginLimiter, auth.login);
 router.post('/refresh', auth.refreshToken);

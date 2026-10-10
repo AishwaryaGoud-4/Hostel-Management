@@ -15,6 +15,14 @@ const run = async () => {
   }
 
   await connectDB();
+  const otherAdmin = await User.findOne({ role: 'SUPER_ADMIN', email: { $ne: email.toLowerCase() } }).select('email');
+  if (otherAdmin) {
+    console.error(`An admin already exists (${otherAdmin.email}). The system allows only one admin account.`);
+    console.error(`To reset its password run: npm run create-admin -- ${otherAdmin.email} <newPassword>`);
+    await mongoose.disconnect();
+    process.exit(1);
+  }
+
   const hashedPassword = await bcrypt.hash(password, 12);
   const existing = await User.findOne({ email: email.toLowerCase() });
 
@@ -22,6 +30,7 @@ const run = async () => {
     existing.password = hashedPassword;
     existing.role = 'SUPER_ADMIN';
     existing.isActive = true;
+    existing.approvalStatus = 'APPROVED';
     await existing.save();
     console.log(`Updated ${email} to SUPER_ADMIN with the new password.`);
   } else {
