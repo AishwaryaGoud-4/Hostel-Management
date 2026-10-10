@@ -15,6 +15,8 @@ const userSchema = new mongoose.Schema(
     phone: { type: String, required: true },
     avatar: String,
     isActive: { type: Boolean, default: true },
+    // Warden sign-ups wait for the admin; everyone else is approved on creation.
+    approvalStatus: { type: String, enum: ['APPROVED', 'PENDING', 'REJECTED'], default: 'APPROVED' },
     isEmailVerified: { type: Boolean, default: false },
     refreshToken: { type: String, select: false },
     refreshSessions: {

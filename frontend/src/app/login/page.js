@@ -194,7 +194,11 @@ export default function LoginPage() {
             <p style={{ textAlign: 'center', marginTop: 22, fontSize: 14, color: 'var(--color-text-muted)' }}>
               Don&apos;t have an account?{' '}
               <Link href="/register" style={{ color: 'var(--color-primary-light)', textDecoration: 'none', fontWeight: 600 }}>
-                Register
+                Student registration
+              </Link>
+              {' · '}
+              <Link href="/register/warden" style={{ color: 'var(--color-primary-light)', textDecoration: 'none', fontWeight: 600 }}>
+                Warden registration
               </Link>
             </p>
           </TiltCard>

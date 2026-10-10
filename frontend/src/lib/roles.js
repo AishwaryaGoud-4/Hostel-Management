@@ -13,7 +13,7 @@ const NOTIFICATION_PAGES = {
   STUDENT: { COMPLAINT: 'complaints', GATE_PASS: 'gatepass', FEE: 'fees', ATTENDANCE: 'attendance', ROOM: 'room' },
   WARDEN: { COMPLAINT: 'complaints', EMERGENCY: 'complaints', GATE_PASS: 'gatepasses', ATTENDANCE: 'attendance', ROOM: 'allocation' },
   STAFF: { COMPLAINT: 'complaints', EMERGENCY: 'complaints', GATE_PASS: 'gatepasses' },
-  SUPER_ADMIN: { COMPLAINT: 'complaints', EMERGENCY: 'complaints', FEE: 'fees', ROOM: 'users' },
+  SUPER_ADMIN: { COMPLAINT: 'complaints', EMERGENCY: 'complaints', FEE: 'fees', ROOM: 'users', SYSTEM: 'users' },
 };
 
 export function notificationHref(role, type) {
