@@ -1,4 +1,16 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://hostelmanagements.onrender.com/api';
+const DIRECT_API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://hostelmanagements.onrender.com/api';
+
+// In the browser on a deployed site, go through the Next.js /api rewrite so auth cookies are first-party.
+function resolveApiUrl() {
+  if (typeof window === 'undefined') return DIRECT_API_URL;
+  const host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') return DIRECT_API_URL;
+  try {
+    return new URL(DIRECT_API_URL).hostname === host ? DIRECT_API_URL : '/api';
+  } catch {
+    return DIRECT_API_URL;
+  }
+}
 
 // A 401 from these means "wrong credentials", not "session expired".
 const NO_REFRESH_ENDPOINTS = ['/auth/login', '/auth/register', '/auth/refresh'];
@@ -7,8 +19,11 @@ const NO_REDIRECT_ENDPOINTS = ['/auth/me', '/auth/logout'];
 
 class ApiClient {
   constructor() {
-    this.baseURL = API_URL;
     this.accessToken = null;
+  }
+
+  get baseURL() {
+    return resolveApiUrl();
   }
 
   setToken(token) {
