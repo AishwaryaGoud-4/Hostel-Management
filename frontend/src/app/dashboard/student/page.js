@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { format } from 'date-fns';
@@ -74,7 +74,8 @@ function Skeleton({ h = 18, w = '60%' }) {
 }
 
 export default function StudentDashboard() {
-  const { user } = useAuthStore();
+  const { user, checkAuth } = useAuthStore();
+  const allocTried = useRef(false);
   const { socket, sendSOS, isConnected } = useSocket();
   const [sosSending, setSosSending] = useState(false);
 
@@ -104,7 +105,17 @@ export default function StudentDashboard() {
     setComplaints(cRes.data?.complaints || []);
     setFees(fRes.data || { invoices: [], totalDue: 0 });
     setAttendance(aRes.data || { percentage: 0, presentCount: 0, totalDays: 0, todayStatus: null });
-    setRoom(extractRoomFromMeResponse(roomRes));
+    let myRoom = extractRoomFromMeResponse(roomRes);
+    if (!myRoom && !allocTried.current) {
+      allocTried.current = true;
+      const alloc = await api.post('/rooms/me/allocate', {}).catch(() => null);
+      myRoom = alloc?.success ? extractRoomFromMeResponse(alloc) : null;
+      if (myRoom) {
+        toast.success(`Room ${myRoom.roomId} assigned to you`);
+        checkAuth();
+      }
+    }
+    setRoom(myRoom);
     setLoading(false);
   };
 

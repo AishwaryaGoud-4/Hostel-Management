@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/authStore';
 import api from '@/lib/api';
-import { extractRoomFromRegisterResponse } from '@/lib/roomResponse';
+import { extractRoomFromRegisterResponse, extractRoomFromMeResponse } from '@/lib/roomResponse';
 import {
   HiOutlineEnvelope,
   HiOutlineLockClosed,
@@ -121,10 +121,24 @@ export default function RegisterPage() {
         return;
       }
 
-      const roomInfo = extractRoomFromRegisterResponse(res);
       const displayName =
         res.student?.name || res.data?.student?.name || `${firstName} ${lastName}`.trim();
       const displayCourse = res.student?.course || res.data?.student?.course || course;
+
+      const token = res.data?.accessToken;
+      const user = res.data?.user;
+      if (token) api.setToken(token);
+      if (user && token) {
+        useAuthStore.setState({ user, isAuthenticated: true, isLoading: false, error: null });
+      }
+
+      let roomInfo = extractRoomFromRegisterResponse(res);
+      if (!roomInfo?.roomId && token) {
+        roomInfo = extractRoomFromMeResponse(await api.get('/rooms/me').catch(() => null));
+        if (!roomInfo?.roomId) {
+          roomInfo = extractRoomFromMeResponse(await api.post('/rooms/me/allocate', {}).catch(() => null));
+        }
+      }
 
       if (!roomInfo?.roomId) {
         setRegistrationSuccess({
@@ -132,18 +146,8 @@ export default function RegisterPage() {
           name: displayName,
           course: displayCourse,
         });
-        toast.error(
-          `Account may have been created, but no ${displayCourse} room was assigned. Contact the hostel administrator.`,
-          { duration: 6000 }
-        );
+        toast(`Your account is ready. Your ${displayCourse} room will show on your dashboard once it is assigned.`, { duration: 6000 });
         return;
-      }
-
-      const token = res.data?.accessToken;
-      const user = res.data?.user;
-      if (token) api.setToken(token);
-      if (user && token) {
-        useAuthStore.setState({ user, isAuthenticated: true, isLoading: false, error: null });
       }
 
       setRegistrationSuccess({
@@ -235,23 +239,34 @@ export default function RegisterPage() {
                     initial={{ opacity: 0, x: -8 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 0.35 }}
-                    style={{ fontSize: 22, fontWeight: 800, marginTop: 4, color: 'var(--color-accent-light)' }}
+                    style={{ fontSize: 22, fontWeight: 800, marginTop: 4, color: registrationSuccess.partial ? 'var(--color-text-muted)' : 'var(--color-accent-light)' }}
                   >
-                    {registrationSuccess.room}
+                    {registrationSuccess.room || 'Being assigned'}
                   </motion.p>
                 </div>
-                <div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', letterSpacing: 0.5 }}>ROOM NUMBER</span>
-                  <p style={{ fontSize: 16, marginTop: 4 }}>{registrationSuccess.roomNumber || '—'}</p>
-                </div>
-                <div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', letterSpacing: 0.5 }}>ROOM CAPACITY</span>
-                  <p style={{ fontSize: 16, marginTop: 4 }}>{registrationSuccess.capacity} Students</p>
-                </div>
+                {!registrationSuccess.partial && (
+                  <>
+                    <div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', letterSpacing: 0.5 }}>ROOM NUMBER</span>
+                      <p style={{ fontSize: 16, marginTop: 4 }}>{registrationSuccess.roomNumber || '—'}</p>
+                    </div>
+                    {registrationSuccess.capacity != null && (
+                      <div>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', letterSpacing: 0.5 }}>ROOM CAPACITY</span>
+                        <p style={{ fontSize: 16, marginTop: 4 }}>
+                          {registrationSuccess.capacity} Students
+                          {registrationSuccess.availableBeds != null && ` · ${registrationSuccess.availableBeds} beds free`}
+                        </p>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
 
               <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 24 }}>
-                Your room has been assigned automatically.
+                {registrationSuccess.partial
+                  ? 'Your account is ready. Open your dashboard to see your room as soon as it is assigned.'
+                  : 'Your room has been assigned automatically.'}
               </p>
               <Link href="/dashboard/student" className="btn-primary"
                 style={{ display: 'inline-block', padding: '14px 28px', textDecoration: 'none', marginRight: 10 }}>

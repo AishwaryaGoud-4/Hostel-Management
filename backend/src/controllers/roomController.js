@@ -233,7 +233,8 @@ exports.getMyRoom = async (req, res) => {
 };
 
 exports.requestRoomAllocation = async (req, res) => {
-  const seeded = await ensureCourseRooms();
+  const requester = await User.findById(req.user.userId).select('studentProfile.course').lean();
+  const seeded = await ensureCourseRooms(requester?.studentProfile?.course);
   if (!seeded.ok) {
     return res.status(400).json({ success: false, message: seeded.message });
   }
