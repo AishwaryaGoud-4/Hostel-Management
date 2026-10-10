@@ -52,9 +52,17 @@ app.use(rateLimit({
   message: { success: false, message: 'Too many requests. Please slow down and try again shortly.' },
 }));
 
+// Render sets these on every deploy; locally they are empty.
+const deployInfo = {
+  host: process.env.RENDER ? 'render' : 'local',
+  commit: process.env.RENDER_GIT_COMMIT ? process.env.RENDER_GIT_COMMIT.slice(0, 7) : null,
+  branch: process.env.RENDER_GIT_BRANCH || null,
+  startedAt: new Date().toISOString(),
+};
+
 // Health check / Root route
 app.get(['/', '/api/health'], (req, res) => {
-  res.json({ success: true, message: 'SHMS Backend is running successfully!' });
+  res.json({ success: true, message: 'SHMS Backend is running successfully!', deploy: deployInfo });
 });
 
 // API Routes
@@ -77,7 +85,8 @@ const start = async () => {
   server.listen(config.port, () => {
     console.log(`\n🚀 SHMS Backend running on http://localhost:${config.port}`);
     console.log(`📡 Socket.IO ready`);
-    console.log(`🌍 Environment: ${config.nodeEnv}\n`);
+    console.log(`🌍 Environment: ${config.nodeEnv}`);
+    console.log(`🧾 Deploy: ${deployInfo.host}${deployInfo.commit ? ` · commit ${deployInfo.commit} on ${deployInfo.branch}` : ''}\n`);
   });
 };
 
